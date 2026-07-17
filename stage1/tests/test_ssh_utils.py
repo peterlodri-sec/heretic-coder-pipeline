@@ -68,9 +68,31 @@ def test_scp_to_raises_on_failure():
             scp_to("root@host", 1234, "/local/dir", "/remote/dir")
 
 
+def test_scp_to_retries_on_transient_failure_then_succeeds():
+    responses = [
+        _completed(1, stderr="ssh: connect to host x port 22: Connection refused"),
+        _completed(0),
+    ]
+    with patch("ssh_utils.subprocess.run", side_effect=responses), \
+         patch("ssh_utils.time.sleep") as mock_sleep:
+        scp_to("root@host", 1234, "/local/dir", "/remote/dir", retries=3, backoff=5)
+    mock_sleep.assert_called_once_with(5)
+
+
 def test_scp_from_builds_command():
     with patch("ssh_utils.subprocess.run", return_value=_completed(0)) as mock_run:
         scp_from("root@host", 1234, "/remote/file", "/local/file")
     args = mock_run.call_args[0][0]
     assert args[0] == "scp"
     assert args[-2:] == ["root@host:/remote/file", "/local/file"]
+
+
+def test_scp_from_retries_on_transient_failure_then_succeeds():
+    responses = [
+        _completed(1, stderr="Connection refused"),
+        _completed(0),
+    ]
+    with patch("ssh_utils.subprocess.run", side_effect=responses), \
+         patch("ssh_utils.time.sleep") as mock_sleep:
+        scp_from("root@host", 1234, "/remote/file", "/local/file", retries=3, backoff=5)
+    mock_sleep.assert_called_once_with(5)
