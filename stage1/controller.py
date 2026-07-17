@@ -48,12 +48,14 @@ def poll_until_done(host: str, port: int, interval: int = POLL_INTERVAL_SECONDS)
         try:
             raw = ssh_utils.run_ssh(host, port, f"cat {REMOTE_STATUS_PATH}")
             status = status_io.parse_status_text(raw)
-        except (ssh_utils.SSHError, ValueError):
+            stage = status["stage"]
+            verdict = status["verdict"]
+        except (ssh_utils.SSHError, ValueError, KeyError):
             time.sleep(interval)
             continue
 
-        print(f"[{status['stage']}] verdict={status['verdict']}")
-        if status["stage"] == "done":
+        print(f"[{stage}] verdict={verdict}")
+        if stage == "done":
             return status
         time.sleep(interval)
 
@@ -77,12 +79,22 @@ def main() -> int:
     final_status = poll_until_done(host, port)
 
     local_log_path = os.path.join(STAGE1_DIR, "heretic_run.log")
-    ssh_utils.scp_from(host, port, REMOTE_LOG_PATH, local_log_path)
+    try:
+        ssh_utils.scp_from(host, port, REMOTE_LOG_PATH, local_log_path)
+    except Exception as error:
+        print(f"warning: failed to pull run log: {error}", file=sys.stderr)
 
     print(json.dumps(final_status, indent=2))
 
     if final_status["verdict"] == "pass":
-        vast.stop_instance(id=instance["id"])
+        try:
+            vast.stop_instance(id=instance["id"])
+        except Exception as error:
+            print(
+                f"warning: failed to stop instance {instance['id']}: {error}; "
+                "stop it manually to avoid continued billing",
+                file=sys.stderr,
+            )
 
     return 0 if final_status["verdict"] == "pass" else 1
 
