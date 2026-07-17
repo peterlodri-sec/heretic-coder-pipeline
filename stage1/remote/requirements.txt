@@ -1,5 +1,10 @@
 # stage1/remote/requirements.txt
-heretic-llm
+# heretic-llm's headless/non-interactive CLI flags (--checkpoint-action,
+# --trial-index, --model-action, --save-directory, etc.) landed in commit
+# e7b783e on master but have not been released to PyPI (latest release is
+# v1.4.0, predating that commit) — install from source, pinned, until a
+# release includes it.
+heretic-llm @ git+https://github.com/p-e-w/heretic.git@e7b783ed85
 huggingface_hub
 hf-transfer
 lm_eval

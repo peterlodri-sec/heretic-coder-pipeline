@@ -954,7 +954,15 @@ echo "=== SETUP COMPLETE ==="
 
 ```
 # stage1/remote/requirements.txt
-heretic-llm
+# heretic-llm's headless/non-interactive CLI flags (--checkpoint-action,
+# --trial-index, --model-action, --save-directory, etc.) landed in commit
+# e7b783e on master but have not been released to PyPI (latest release is
+# v1.4.0, predating that commit) — install from source, pinned, until a
+# release includes it. Discovered during Task 9's dry run: heretic v1.4.0
+# from PyPI genuinely lacks these flags (`heretic --help` on the real box
+# confirmed it, and the run failed with an argparse error), not a caching
+# or version-check mistake.
+heretic-llm @ git+https://github.com/p-e-w/heretic.git@e7b783ed85
 huggingface_hub
 hf-transfer
 lm_eval
