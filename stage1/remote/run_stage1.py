@@ -42,7 +42,7 @@ def tail(path: str, n_chars: int = 4000) -> str:
 
 def run_heretic():
     cmd = [
-        "heretic", MODEL,
+        "heretic", "--model", MODEL,
         "--export-strategy", "merge",
         "--checkpoint-action", "continue",
         "--trial-index", str(TRIAL_INDEX),
