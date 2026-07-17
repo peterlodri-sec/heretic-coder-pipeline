@@ -57,9 +57,11 @@ def run_heretic():
                 cmd, stdout=logf, stderr=subprocess.STDOUT,
                 timeout=WALL_CLOCK_CEILING_SECONDS,
             )
-            return proc.returncode
+            return proc.returncode, None
         except subprocess.TimeoutExpired:
-            return None
+            return None, "wall-clock ceiling exceeded"
+        except OSError as error:
+            return None, f"failed to launch heretic: {error}"
 
 
 def main():
@@ -68,11 +70,11 @@ def main():
     status_io.write_status(STATUS_PATH, status)
 
     update_status(status, stage="abliterating")
-    returncode = run_heretic()
+    returncode, run_error = run_heretic()
 
     if returncode is None:
         update_status(status, stage="done", verdict="error",
-                       error="wall-clock ceiling exceeded", log_tail=tail(HERETIC_LOG_PATH))
+                       error=run_error, log_tail=tail(HERETIC_LOG_PATH))
         return
     if returncode != 0:
         update_status(status, stage="done", verdict="error",
@@ -106,11 +108,14 @@ def main():
     )
 
     if result["verdict"] == "pass":
-        from huggingface_hub import HfApi
-        api = HfApi()
-        api.create_repo(repo_id=HF_REPO_ID, private=True, exist_ok=True)
-        api.upload_folder(folder_path=EXPORT_DIR, repo_id=HF_REPO_ID)
-        update_status(status, hf_repo=HF_REPO_ID)
+        try:
+            from huggingface_hub import HfApi
+            api = HfApi()
+            api.create_repo(repo_id=HF_REPO_ID, private=True, exist_ok=True)
+            api.upload_folder(folder_path=EXPORT_DIR, repo_id=HF_REPO_ID)
+            update_status(status, hf_repo=HF_REPO_ID)
+        except Exception as error:
+            update_status(status, error=f"HF publish failed: {error}")
 
     update_status(status, stage="done", log_tail=tail(HERETIC_LOG_PATH))
 
