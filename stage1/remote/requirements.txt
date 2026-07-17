@@ -1,0 +1,6 @@
+# stage1/remote/requirements.txt
+heretic-llm
+huggingface_hub
+hf-transfer
+lm_eval
+optuna
