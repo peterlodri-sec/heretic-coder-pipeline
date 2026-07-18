@@ -50,7 +50,7 @@ def test_load_bfcl_cases_maps_first_answer_call():
         {
             "query": "q1",
             "answers": '[{"name": "f", "arguments": {"x": 1}}, {"name": "g", "arguments": {}}]',
-            "tools": "[]",
+            "tools": '[{"name": "f", "description": "d", "parameters": {}}]',
         },
         {
             "query": "q2",
@@ -63,8 +63,12 @@ def test_load_bfcl_cases_maps_first_answer_call():
         cases = eval_datasets.load_bfcl_cases(limit=10)
 
     assert cases == [
-        {"prompt": "q1", "expected": {"name": "f", "arguments": {"x": 1}}},
-        {"prompt": "q2", "expected": {"name": "h", "arguments": {"y": 2}}},
+        {
+            "prompt": "q1",
+            "tools": [{"name": "f", "description": "d", "parameters": {}}],
+            "expected": {"name": "f", "arguments": {"x": 1}},
+        },
+        {"prompt": "q2", "tools": [], "expected": {"name": "h", "arguments": {"y": 2}}},
     ]
     fake.load_dataset.assert_called_once()
 
@@ -81,4 +85,6 @@ def test_load_bfcl_cases_honors_limit():
         cases = eval_datasets.load_bfcl_cases(limit=5)
 
     assert len(cases) == 5
-    assert cases[0] == {"prompt": "q0", "expected": {"name": "f0", "arguments": {}}}
+    assert cases[0] == {
+        "prompt": "q0", "tools": [], "expected": {"name": "f0", "arguments": {}}
+    }

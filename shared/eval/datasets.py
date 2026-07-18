@@ -49,9 +49,12 @@ def load_refusal_prompts(limit: int = 150) -> list[str]:
 def load_bfcl_cases(limit: int = 120) -> list[dict]:
     """Return up to ``limit`` tool-calling cases.
 
-    Each case maps to ``{"prompt": query, "expected": {"name", "arguments"}}``
-    using the *first* answer call in the row. The ``answers`` field is a JSON
-    string in the source dataset, so it is parsed when necessary.
+    Each case maps to
+    ``{"prompt": query, "tools": [...], "expected": {"name", "arguments"}}``
+    using the *first* answer call in the row. The ``answers`` and ``tools``
+    fields are JSON strings in the source dataset, so they are parsed when
+    necessary. ``tools`` is passed into the chat template at eval time so the
+    model actually SEES the available functions.
     """
     import datasets
 
@@ -63,10 +66,16 @@ def load_bfcl_cases(limit: int = 120) -> list[dict]:
             answers = json.loads(answers)
         if not answers:
             continue
+        tools = row.get("tools")
+        if isinstance(tools, str):
+            tools = json.loads(tools)
+        if tools is None:
+            tools = []
         first = answers[0]
         cases.append(
             {
                 "prompt": row.get("query"),
+                "tools": tools,
                 "expected": {
                     "name": first.get("name"),
                     "arguments": first.get("arguments", {}),
