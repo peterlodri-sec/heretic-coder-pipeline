@@ -11,25 +11,29 @@ def train(model_source: str, data_path: str, out_dir: str,
     from trl import SFTConfig, SFTTrainer
     from datasets import load_dataset
 
+    # H200 (141GB): train the 32B in bf16 (16-bit weights + LoRA fit) for
+    # quality — no 4-bit quantization during SFT.
     model, tokenizer = FastLanguageModel.from_pretrained(
         model_name=model_source, max_seq_length=MAX_SEQ_LEN,
-        load_in_4bit=True, dtype=None,
+        load_in_4bit=False, dtype=None,
     )
     model = FastLanguageModel.get_peft_model(
         model, r=64, lora_alpha=128, lora_dropout=0.0,
         target_modules=LORA_TARGETS,
         use_gradient_checkpointing="unsloth", random_state=42,
     )
+    # Conversational dataset: a `messages` column is auto chat-templated by
+    # SFTTrainer (no dataset_text_field / formatting_func needed).
     dataset = load_dataset("json", data_files=data_path, split="train")
 
     trainer = SFTTrainer(
-        model=model, tokenizer=tokenizer, train_dataset=dataset,
+        model=model, train_dataset=dataset, processing_class=tokenizer,
         args=SFTConfig(
+            max_length=MAX_SEQ_LEN, packing=False, assistant_only_loss=True,
             per_device_train_batch_size=2, gradient_accumulation_steps=8,
             warmup_ratio=0.03, num_train_epochs=num_epochs, max_steps=max_steps,
             learning_rate=2e-4, bf16=True, lr_scheduler_type="cosine",
-            optim="adamw_8bit", logging_steps=10, packing=True,
-            max_seq_length=MAX_SEQ_LEN, output_dir=out_dir,
+            optim="adamw_8bit", logging_steps=10, output_dir=out_dir,
         ),
     )
     stats = trainer.train()

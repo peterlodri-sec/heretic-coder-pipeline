@@ -33,8 +33,6 @@ STATUS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "status.j
 LOG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "sft_run.log")
 CONTAMINATED = frozenset()  # extend if a contaminated source is added later
 
-SWEBENCH_DATASET = "princeton-nlp/SWE-bench_Verified"
-
 
 def update_status(status: Status, **fields) -> None:
     for name, value in fields.items():
@@ -75,7 +73,8 @@ def _evaluate(check_swebench: bool) -> dict:
         "bfcl_accuracy": eval_bfcl.accuracy(MERGED_OUT, bfcl_cases),
         "humaneval_delta": eval_humaneval.regression(MODEL_SOURCE, MERGED_OUT),
         "swebench_resolve": (
-            eval_swebench.resolve_rate(MERGED_OUT, SWEBENCH_DATASET) if check_swebench else 1.0
+            eval_swebench.resolve_rate(MERGED_OUT, model_name="candidate", limit=100)
+            if check_swebench else 1.0
         ),
     }
     return metrics
