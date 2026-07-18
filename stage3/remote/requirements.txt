@@ -1,12 +1,16 @@
-# stage3 ORPO deps — same stack as stage2 (trl provides ORPOTrainer). Pin to
-# avoid unpinned upstream breaks; bump deliberately.
-unsloth==2025.6.1
-trl==0.9.6
-transformers==4.44.2
-datasets==2.21.0
-accelerate==0.34.2
-peft==0.12.0
-bitsandbytes==0.43.3
-huggingface_hub==1.24.0
-hf-transfer==0.1.9
+# stage3 ORPO deps — same verified stack as stage2 (trl 0.24 provides the
+# conversational ORPOTrainer). setup.sh installs torch==2.6.0 +
+# xformers==0.0.29.post3 from the cu124 index BEFORE this file. Do NOT float
+# transformers; keep huggingface_hub on 0.35.x. Bump deliberately.
+unsloth==2026.7.3
+unsloth_zoo==2026.7.3
+trl==0.24.0
+transformers==4.56.2
+datasets==4.3.0
+huggingface_hub==0.35.3
+peft==0.19.1
+accelerate==1.14.0
+bitsandbytes==0.49.2
 lm_eval==0.4.12
+hf-transfer==0.1.9
+swebench==4.1.0
