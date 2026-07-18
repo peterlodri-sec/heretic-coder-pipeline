@@ -6,22 +6,21 @@ VALID_ROLES = frozenset({"system", "user", "assistant", "tool"})
 
 @dataclass(slots=True)
 class TrainingExample:
-    """One multi-turn SFT example in a single unified schema.
+    """One (multi-turn) SFT example in a single unified schema.
 
     Tool calls live inside assistant message content as Hermes <tool_call>
     blocks; tool results as <tool_response> blocks in a role="tool" message.
-    weight < 1 downweights (e.g. contamination); is_negative marks
-    wrong-tool / malformed / refuse-when-no-tool examples.
+    SFT trains only positive targets, so there is no `is_negative` flag
+    (negatives belong to ORPO). TRL's SFTTrainer does not consume a per-example
+    weight, so there is no `weight` either — contamination is handled by
+    dropping whole sources (see contamination.filter_contaminated).
     """
 
     source: str
     messages: list[dict] = field(default_factory=list)
-    weight: float = 1.0
-    is_negative: bool = False
 
     def to_record(self) -> dict:
-        return {"source": self.source, "messages": self.messages,
-                "weight": self.weight, "is_negative": self.is_negative}
+        return {"source": self.source, "messages": self.messages}
 
 
 def tool_call_block(name: str, arguments: dict) -> str:

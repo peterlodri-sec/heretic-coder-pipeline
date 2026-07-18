@@ -14,31 +14,45 @@ class FakeSource(DataSource):
         yield from self._examples
 
 
-def _ex(source, is_neg=False):
-    return TrainingExample(source=source, messages=[{"role": "user", "content": "q"}],
-                           is_negative=is_neg)
+def _ex(source):
+    return TrainingExample(
+        source=source,
+        messages=[{"role": "user", "content": "q"},
+                  {"role": "assistant", "content": "a"}])
 
 
-def test_build_writes_jsonl_with_records(tmp_path):
+def test_build_writes_messages_only_jsonl(tmp_path):
     out = tmp_path / "train.jsonl"
-    sources = [FakeSource("magicoder", [_ex("magicoder"), _ex("magicoder", True)])]
-    count = build(sources, str(out), contaminated=set(), min_negative_ratio=0.1)
+    sources = [FakeSource("magicoder", [_ex("magicoder"), _ex("magicoder")])]
+    count = build(sources, str(out))
     lines = out.read_text().splitlines()
     assert count == 2 and len(lines) == 2
-    assert json.loads(lines[0])["source"] == "magicoder"
+    record = json.loads(lines[0])
+    # exactly one key: messages (TRL conversational path)
+    assert list(record.keys()) == ["messages"]
+    assert record["messages"][0]["role"] == "user"
 
 
-def test_build_applies_contamination(tmp_path):
+def test_build_drops_contaminated_sources(tmp_path):
     out = tmp_path / "train.jsonl"
-    sources = [FakeSource("sharegpt", [_ex("sharegpt"), _ex("sharegpt", True)])]
-    build(sources, str(out), contaminated={"sharegpt"}, mode="exclude",
-          min_negative_ratio=0.0)
-    assert out.read_text() == ""  # all excluded
+    sources = [FakeSource("sharegpt", [_ex("sharegpt")]),
+               FakeSource("magicoder", [_ex("magicoder")])]
+    count = build(sources, str(out), contaminated={"sharegpt"})
+    lines = out.read_text().splitlines()
+    assert count == 1 and len(lines) == 1
+    assert json.loads(lines[0])["messages"][0]["content"] == "q"
 
 
-def test_build_enforces_negative_minimum(tmp_path):
+def test_build_validates_and_rejects_bad_role(tmp_path):
     import pytest
     out = tmp_path / "train.jsonl"
-    sources = [FakeSource("magicoder", [_ex("magicoder")] * 10)]  # zero negatives
+    bad = TrainingExample(source="x", messages=[{"role": "wizard", "content": "?"}])
+    sources = [FakeSource("x", [bad])]
     with pytest.raises(ValueError):
-        build(sources, str(out), contaminated=set(), min_negative_ratio=0.05)
+        build(sources, str(out))
+
+
+def test_build_default_contaminated_is_empty(tmp_path):
+    out = tmp_path / "train.jsonl"
+    sources = [FakeSource("magicoder", [_ex("magicoder")])]
+    assert build(sources, str(out)) == 1

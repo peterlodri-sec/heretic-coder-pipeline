@@ -12,11 +12,10 @@ from shared import export
 import sft_train
 import verdict
 from dataprep import pipeline as dataprep_pipeline
-from dataprep.sources.bfcl import BFCLSource
 from dataprep.sources.crabcc import CrabccSource
 from dataprep.sources.magicoder import MagicoderSource
-from dataprep.sources.swebench import SWEBenchSource
 from dataprep.sources.toolace import ToolACESource
+from dataprep.sources.xlam import XLAMSource
 from enums import Stage
 from shared.enums import Verdict
 from status_io import Status
@@ -56,7 +55,7 @@ def tail(path: str, n_chars: int = 4000) -> str:
 
 def _sources():
     return [
-        SWEBenchSource(), BFCLSource(), ToolACESource(),
+        XLAMSource(), ToolACESource(),
         MagicoderSource(), CrabccSource(trace_dir=CRABCC_TRACE_DIR),
     ]
 

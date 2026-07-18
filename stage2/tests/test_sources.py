@@ -1,7 +1,13 @@
+import json
 from unittest.mock import patch
 
 from dataprep.sources.magicoder import MagicoderSource
+from dataprep.sources.xlam import XLAMSource
+from dataprep.sources.toolace import ToolACESource
+from dataprep.sources.crabcc import CrabccSource
 
+
+# --- Magicoder: cols problem/solution -> user/assistant -------------------
 
 def test_magicoder_maps_rows_to_examples():
     rows = [{"problem": "Write add()", "solution": "def add(a,b): return a+b"}]
@@ -12,51 +18,88 @@ def test_magicoder_maps_rows_to_examples():
     assert ex.source == "magicoder"
     assert ex.messages[0]["role"] == "user" and "add()" in ex.messages[0]["content"]
     assert ex.messages[1]["role"] == "assistant" and "def add" in ex.messages[1]["content"]
-    assert ex.is_negative is False
 
 
-from dataprep.sources.bfcl import BFCLSource
-from dataprep.sources.toolace import ToolACESource
-from dataprep.sources.swebench import SWEBenchSource
-from dataprep.sources.crabcc import CrabccSource
+# --- xLAM: JSON-string tools/answers -> system + Hermes tool_call ----------
+
+def test_xlam_puts_tools_in_system_and_answers_as_tool_calls():
+    tools = [{"name": "get_weather", "description": "weather",
+              "parameters": {"city": {"type": "string"}}}]
+    answers = [{"name": "get_weather", "arguments": {"city": "NYC"}}]
+    rows = [{"query": "weather in NYC?",
+             "tools": json.dumps(tools), "answers": json.dumps(answers), "id": "1"}]
+    with patch("shared.dataprep.loaders.load_xlam_rows", return_value=rows):
+        exs = list(XLAMSource().examples())
+    assert len(exs) == 1
+    ex = exs[0]
+    assert ex.source == "xlam"
+    roles = [m["role"] for m in ex.messages]
+    assert roles == ["system", "user", "assistant"]
+    # tools land in the system message
+    assert "get_weather" in ex.messages[0]["content"]
+    assert ex.messages[1]["content"] == "weather in NYC?"
+    # gold answer rendered as one Hermes <tool_call> block
+    assistant = ex.messages[2]["content"]
+    assert assistant.startswith("<tool_call>") and assistant.endswith("</tool_call>")
+    inner = assistant[len("<tool_call>"):-len("</tool_call>")].strip()
+    assert json.loads(inner) == {"name": "get_weather", "arguments": {"city": "NYC"}}
 
 
-def test_bfcl_builds_tool_call_and_marks_wrong_tool_negative():
-    rows = [
-        {"question": "list files", "function": "bash",
-         "arguments": {"cmd": "ls"}, "output": "a b", "correct": True},
-        {"question": "list files", "function": "delete_all",
-         "arguments": {}, "output": "", "correct": False},
-    ]
-    with patch("shared.dataprep.loaders.load_bfcl_rows", return_value=rows):
-        exs = list(BFCLSource().examples())
-    assert "<tool_call>" in exs[0].messages[1]["content"]
-    assert exs[0].is_negative is False
-    assert exs[1].is_negative is True
+def test_xlam_renders_multiple_calls_as_separate_blocks():
+    tools = [{"name": "a", "parameters": {}}, {"name": "b", "parameters": {}}]
+    answers = [{"name": "a", "arguments": {"x": 1}}, {"name": "b", "arguments": {"y": 2}}]
+    rows = [{"query": "do both", "tools": json.dumps(tools),
+             "answers": json.dumps(answers), "id": "2"}]
+    with patch("shared.dataprep.loaders.load_xlam_rows", return_value=rows):
+        ex = next(iter(XLAMSource().examples()))
+    assert ex.messages[2]["content"].count("<tool_call>") == 2
 
 
-def test_toolace_filters_to_code_adjacent():
-    rows = [
-        {"domain": "coding", "conversation": [
-            {"role": "user", "content": "q"}, {"role": "assistant", "content": "a"}]},
-        {"domain": "cooking", "conversation": [
-            {"role": "user", "content": "q"}, {"role": "assistant", "content": "a"}]},
-    ]
+# --- ToolACE: from/value mapping + bracket -> Hermes -----------------------
+
+def test_toolace_maps_from_value_and_prepends_system():
+    rows = [{
+        "system": "You can call tools.",
+        "conversations": [
+            {"from": "user", "value": "weather in NYC?"},
+            {"from": "assistant", "value": '[get_weather(city="NYC", days=3)]'},
+            {"from": "tool", "value": '{"temp": 20}'},
+            {"from": "assistant", "value": "It is 20 degrees."},
+        ],
+    }]
     with patch("shared.dataprep.loaders.load_toolace_rows", return_value=rows):
         exs = list(ToolACESource().examples())
-    assert len(exs) == 1 and exs[0].source == "toolace"
-
-
-def test_swebench_uses_resolved_only_and_formats_patch():
-    rows = [
-        {"problem_statement": "fix bug", "patch": "diff --git a b", "resolved": True},
-        {"problem_statement": "other", "patch": "x", "resolved": False},
-    ]
-    with patch("shared.dataprep.loaders.load_swebench_rows", return_value=rows):
-        exs = list(SWEBenchSource().examples())
     assert len(exs) == 1
-    assert "diff --git" in exs[0].messages[1]["content"]
+    ex = exs[0]
+    assert ex.source == "toolace"
+    roles = [m["role"] for m in ex.messages]
+    assert roles == ["system", "user", "assistant", "tool", "assistant"]
+    assert ex.messages[0]["content"] == "You can call tools."
+    # bracket assistant call normalized to Hermes
+    call = ex.messages[2]["content"]
+    assert call.startswith("<tool_call>")
+    assert json.loads(call[len("<tool_call>"):-len("</tool_call>")].strip()) == {
+        "name": "get_weather", "arguments": {"city": "NYC", "days": 3}}
+    # tool result + plain assistant turn preserved verbatim
+    assert ex.messages[3]["role"] == "tool" and ex.messages[3]["content"] == '{"temp": 20}'
+    assert ex.messages[4]["content"] == "It is 20 degrees."
 
+
+def test_toolace_keeps_unparseable_bracket_text_as_is():
+    rows = [{
+        "system": "sys",
+        "conversations": [
+            {"from": "user", "value": "hi"},
+            # not a parseable keyword-call list -> kept verbatim
+            {"from": "assistant", "value": "[this is not a call]"},
+        ],
+    }]
+    with patch("shared.dataprep.loaders.load_toolace_rows", return_value=rows):
+        ex = next(iter(ToolACESource().examples()))
+    assert ex.messages[2]["content"] == "[this is not a call]"
+
+
+# --- crabcc: local traces -> Hermes tool_call/tool_response ----------------
 
 def test_crabcc_reads_local_traces():
     trace = {"turns": [

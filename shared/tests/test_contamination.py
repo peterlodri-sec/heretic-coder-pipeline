@@ -7,22 +7,25 @@ def _ex(source):
     return TrainingExample(source=source, messages=[{"role": "user", "content": "x"}])
 
 
-def test_downweight_mode_scales_flagged_sources():
+def test_drop_mode_removes_contaminated_sources():
     out = filter_contaminated(
-        [_ex("magicoder"), _ex("sharegpt")],
-        contaminated={"sharegpt"}, mode="downweight", weight=0.1)
-    by_src = {e.source: e.weight for e in out}
-    assert by_src["magicoder"] == 1.0
-    assert by_src["sharegpt"] == pytest.approx(0.1)
+        [_ex("magicoder"), _ex("sharegpt"), _ex("xlam")],
+        contaminated={"sharegpt"})
+    assert [e.source for e in out] == ["magicoder", "xlam"]
 
 
-def test_exclude_mode_drops_flagged_sources():
+def test_nothing_dropped_when_no_contaminated():
     out = filter_contaminated(
-        [_ex("magicoder"), _ex("sharegpt")],
-        contaminated={"sharegpt"}, mode="exclude")
-    assert [e.source for e in out] == ["magicoder"]
+        [_ex("magicoder"), _ex("xlam")], contaminated=set())
+    assert [e.source for e in out] == ["magicoder", "xlam"]
+
+
+def test_default_mode_is_drop():
+    out = filter_contaminated([_ex("sharegpt")], contaminated={"sharegpt"})
+    assert out == []
 
 
 def test_unknown_mode_raises():
+    # the old down-weight path is gone; only "drop" is valid now
     with pytest.raises(ValueError):
-        filter_contaminated([_ex("x")], contaminated=set(), mode="bogus")
+        filter_contaminated([_ex("x")], contaminated=set(), mode="downweight")

@@ -1,24 +1,22 @@
 import json
 
 from shared.dataprep.contamination import filter_contaminated
-from shared.dataprep.negatives import require_negatives
 from shared.dataprep.schema import validate_example
 
 
-def build(sources, out_path, contaminated, mode="downweight", weight=0.1,
-          min_negative_ratio=0.05):
-    """Load every source -> validate -> contamination filter -> negative check
-    -> write one jsonl record per example. Returns the count written."""
+def build(sources, out_path, contaminated=frozenset()):
+    """Load every source -> validate (strict roles/content) -> drop contaminated
+    sources -> write one jsonl record per example as {"messages": [...]}, which
+    is what TRL's SFTTrainer conversational path consumes. Returns the count."""
     examples = []
     for source in sources:
         for ex in source.examples():
             validate_example(ex)
             examples.append(ex)
 
-    examples = filter_contaminated(examples, contaminated, mode=mode, weight=weight)
-    require_negatives(examples, min_ratio=min_negative_ratio)
+    examples = filter_contaminated(examples, contaminated, mode="drop")
 
     with open(out_path, "w") as f:
         for ex in examples:
-            f.write(json.dumps(ex.to_record()) + "\n")
+            f.write(json.dumps({"messages": ex.messages}) + "\n")
     return len(examples)
