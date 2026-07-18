@@ -1,0 +1,22 @@
+# frontier stage 1 — Heretic abliteration of Qwen3-Coder-480B-A35B on 8xH200.
+# 4bit-quantized load (bnb) so the 480B base fits alongside the study; the
+# search is broadened (60 trials, 30 startup) because a MoE at this scale has a
+# larger refusal-direction landscape. max_memory caps each of the 8 GPUs well
+# under the 141GB H200 ceiling and spills to CPU. GO/NO-GO is decided at
+# runtime (see plan): if qwen3_moe is unsupported at 480B, drop stage 1 and
+# de-align via ORPO data only (controller --skip-heretic).
+model = "Qwen/Qwen3-Coder-480B-A35B-Instruct"
+quantization = "bnb_4bit"
+n_trials = 60
+n_startup_trials = 30
+
+[max_memory]
+0 = "130GB"
+1 = "130GB"
+2 = "130GB"
+3 = "130GB"
+4 = "130GB"
+5 = "130GB"
+6 = "130GB"
+7 = "130GB"
+cpu = "512GB"

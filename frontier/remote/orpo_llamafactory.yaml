@@ -1,0 +1,43 @@
+# frontier stage 3 — LLaMA-Factory native ORPO of the SFT model on 8xH200.
+# ORPO folds preference optimisation into a single reference-free pass
+# (stage: dpo + pref_loss: orpo). QLoRA (quantization_bit: 4) over the same
+# router-safe target modules as stage 2; DeepSpeed ZeRO-3 shards optimizer /
+# gradients / params across the 8 GPUs. template qwen3_nothink matches the
+# Qwen3-Coder chat format without the <think> block.
+### model
+model_name_or_path: /workspace/out/sft-merged
+trust_remote_code: true
+quantization_bit: 4
+
+### method
+stage: dpo
+do_train: true
+finetuning_type: lora
+lora_target: q_proj,k_proj,v_proj,o_proj,gate_proj,up_proj,down_proj
+pref_beta: 0.1
+pref_loss: orpo
+deepspeed: examples/deepspeed/ds_z3_config.json
+
+### dataset
+dataset: dealign_orpo
+template: qwen3_nothink
+cutoff_len: 8192
+overwrite_cache: true
+preprocessing_num_workers: 16
+
+### output
+output_dir: /workspace/out/orpo
+logging_steps: 1
+save_steps: 500
+plot_loss: true
+overwrite_output_dir: true
+
+### train
+per_device_train_batch_size: 1
+gradient_accumulation_steps: 8
+learning_rate: 0.00005
+num_train_epochs: 1.0
+lr_scheduler_type: cosine
+warmup_ratio: 0.03
+bf16: true
+gradient_checkpointing: true

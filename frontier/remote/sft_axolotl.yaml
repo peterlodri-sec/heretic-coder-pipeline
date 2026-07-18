@@ -1,0 +1,62 @@
+# frontier stage 2 — Axolotl QLoRA SFT of Qwen3-Coder-480B-A35B on 8xH200.
+# router-safe LoRA: target the attention + expert-MLP projections by name and
+# let the router `mlp.gate` fall out of scope (do NOT use lora_target_linear —
+# it would attach an adapter to the router and destabilise expert routing).
+# Frozen experts are 4bit-quantized (quantize_moe_experts), trainable adapter is
+# bf16. FSDP2 wraps the decoder layer so the 480B base shards across 8 GPUs.
+base_model: Qwen/Qwen3-Coder-480B-A35B-Instruct
+model_type: AutoModelForCausalLM
+tokenizer_type: AutoTokenizer
+trust_remote_code: true
+
+adapter: qlora
+load_in_4bit: true
+quantize_moe_experts: true
+bf16: true
+tf32: true
+
+lora_r: 16
+lora_alpha: 32
+lora_dropout: 0.05
+lora_target_modules:
+  - q_proj
+  - k_proj
+  - v_proj
+  - o_proj
+  - gate_proj
+  - up_proj
+  - down_proj
+
+chat_template: tokenizer_default
+datasets:
+  - path: /workspace/data/sft.jsonl
+    type: chat_template
+    field_messages: messages
+
+sequence_len: 8192
+sample_packing: true
+pad_to_sequence_len: true
+
+micro_batch_size: 1
+gradient_accumulation_steps: 8
+num_epochs: 2
+optimizer: adamw_torch
+learning_rate: 0.0001
+lr_scheduler: cosine
+warmup_ratio: 0.03
+gradient_checkpointing: true
+
+fsdp:
+  - full_shard
+  - auto_wrap
+fsdp_config:
+  fsdp_version: 2
+  fsdp_offload_params: false
+  fsdp_state_dict_type: SHARDED_STATE_DICT
+  fsdp_transformer_layer_cls_to_wrap: Qwen3MoeDecoderLayer
+
+output_dir: /workspace/out/sft
+logging_steps: 1
+save_strategy: epoch
+special_tokens:
+  pad_token: "<|endoftext|>"
