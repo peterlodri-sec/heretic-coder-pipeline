@@ -7,7 +7,8 @@ import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from enums import Stage, Verdict
+from enums import Stage
+from shared.enums import Verdict
 from status_io import Status
 
 

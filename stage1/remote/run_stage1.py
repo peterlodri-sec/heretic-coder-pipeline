@@ -11,7 +11,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 import capability_eval
 import study_metrics
 import verdict
-from enums import Stage, Verdict
+from enums import Stage
+from shared.enums import Verdict
 from status_io import Status
 
 MODEL = os.environ.get("STAGE1_MODEL", "Qwen/Qwen2.5-Coder-32B-Instruct")

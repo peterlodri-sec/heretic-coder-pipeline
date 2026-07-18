@@ -9,7 +9,8 @@ import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import controller
-from enums import Stage, Verdict
+from enums import Stage
+from shared.enums import Verdict
 from status_io import Status
 
 _ARGS = argparse.Namespace(model="Qwen/Qwen2.5-Coder-32B-Instruct", n_trials=5)
