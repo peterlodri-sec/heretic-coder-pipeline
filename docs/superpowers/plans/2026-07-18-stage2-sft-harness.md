@@ -1579,7 +1579,7 @@ def test_train_returns_final_loss():
         import importlib
         sft_train = importlib.import_module("sft_train")
         importlib.reload(sft_train)
-        loss = sft_train.train("model_src", "data.jsonl", "out", max_steps=1)
+        loss, _model, _tok = sft_train.train("model_src", "data.jsonl", "out", max_steps=1)
     assert loss == 0.42
     fakes["unsloth"].FastLanguageModel.from_pretrained.assert_called_once()
 ```
@@ -1631,7 +1631,10 @@ def train(model_source: str, data_path: str, out_dir: str,
         ),
     )
     stats = trainer.train()
-    return float(stats.training_loss)
+    # Return the live PEFT model + tokenizer so run_stage2 can export (merge
+    # LoRA -> safetensors + gguf) without reloading. train() must NOT return a
+    # bare float — MERGED_OUT/GGUF_OUT are produced from these objects.
+    return float(stats.training_loss), model, tokenizer
 ```
 
 - [ ] **Step 4: Run to verify it passes**
@@ -1884,7 +1887,8 @@ def _reload():
 def _patches(rs, metrics, train_loss=0.3):
     return [
         patch.object(rs.dataprep_pipeline, "build", return_value=5),
-        patch.object(rs.sft_train, "train", return_value=train_loss),
+        patch.object(rs.sft_train, "train", return_value=(train_loss, MagicMock(), MagicMock())),
+        patch.object(rs.export, "export_model"),
         patch.object(rs, "_evaluate", return_value=metrics),
         patch.object(rs, "publish"),
     ]
@@ -1987,9 +1991,9 @@ REFUSAL_PROMPTS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 
 BFCL_CASES_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "bfcl_cases.jsonl")
 SWEBENCH_DATASET = "princeton-nlp/SWE-bench_Verified"
 
-
-class Stage2Error(RuntimeError):
-    pass
+# Eval fixtures shipped in stage2/remote/: refusal_prompts.txt (one prompt per
+# line) and bfcl_cases.jsonl ({"prompt", "expected": {"name", "arguments"}} per
+# line). Ship placeholder sets; swap in the real eval corpora before a GPU run.
 
 
 def update_status(status: Status, **fields) -> None:
@@ -2064,8 +2068,10 @@ def main(check_swebench: bool = True) -> None:
 
     update_status(status, stage=Stage.TRAINING)
     try:
-        loss = sft_train.train(MODEL_SOURCE, DATA_PATH, SFT_OUT, max_steps=MAX_STEPS)
+        loss, model, tokenizer = sft_train.train(MODEL_SOURCE, DATA_PATH, SFT_OUT, max_steps=MAX_STEPS)
         update_status(status, train_loss=loss)
+        # Materialize MERGED_OUT (safetensors, for eval) + GGUF_OUT (for publish).
+        export.export_model(model, tokenizer, MERGED_OUT, GGUF_OUT)
     except Exception as error:
         return fail(status, f"training failed: {error}")
 
