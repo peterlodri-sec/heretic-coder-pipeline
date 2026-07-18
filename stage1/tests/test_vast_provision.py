@@ -118,15 +118,17 @@ def test_provision_starts_stopped_labeled_instance():
     assert vast.created == []
 
 
-def test_provision_falls_back_to_renting_when_start_fails():
+def test_provision_raises_when_start_fails_and_does_not_rent():
+    # A stopped labeled instance that won't start must NOT silently trigger a
+    # second rent — that masks a persistent failure and orphans billing.
     vast = FakeVast(
         instances=[{"id": 2, "label": LABEL, "actual_status": "exited"}],
         offers=[{"id": 10, "dph_total": 1.0}],
     )
     with patch("vast_provision.time.sleep"):
-        result = provision(vast)
-    assert result["id"] == 999
-    assert vast.created
+        with pytest.raises(ProvisionError):
+            provision(vast)
+    assert vast.created == []
 
 
 def test_provision_rents_directly_when_no_labeled_instance():

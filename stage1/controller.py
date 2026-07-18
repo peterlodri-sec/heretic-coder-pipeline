@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 # stage1/controller.py
 import argparse
+import fcntl
 import json
 import os
 import sys
 import time
+from contextlib import contextmanager
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -19,7 +21,11 @@ REMOTE_ROOT = "/root/stage1"
 REMOTE_STATUS_PATH = f"{REMOTE_ROOT}/remote/status.json"
 REMOTE_LOG_PATH = f"{REMOTE_ROOT}/remote/heretic_run.log"
 API_KEY_PATH = os.path.expanduser("~/.config/vastai/vast_api_key")
+PROVISION_LOCK_PATH = os.path.expanduser("~/.config/vastai/heretic-provision.lock")
 POLL_INTERVAL_SECONDS = 300
+# setup.sh runs apt-get + pip install (heretic-llm from git source, lm_eval,
+# optuna); 2-5+ min on a cold instance, far past a normal SSH command timeout.
+SETUP_TIMEOUT_SECONDS = 1200
 SSH_USER = "root"
 
 
@@ -28,12 +34,26 @@ def load_api_key() -> str:
         return f.read().strip()
 
 
+@contextmanager
+def provision_lock():
+    # Serialize provision across concurrent controller runs so two of them
+    # can't both see "no labeled instance" and each rent one (double-rent race).
+    os.makedirs(os.path.dirname(PROVISION_LOCK_PATH), exist_ok=True)
+    with open(PROVISION_LOCK_PATH, "w") as lock_file:
+        fcntl.flock(lock_file, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(lock_file, fcntl.LOCK_UN)
+
+
 def deploy_and_launch(instance: dict, model: str, n_trials: int):
     host = f"{SSH_USER}@{instance['ssh_host']}"
     port = instance["ssh_port"]
 
     ssh_utils.scp_to(host, port, STAGE1_DIR, REMOTE_PARENT, recursive=True)
-    ssh_utils.run_ssh(host, port, f"cd {REMOTE_ROOT}/remote && bash setup.sh", timeout=1200)
+    ssh_utils.run_ssh(host, port, f"cd {REMOTE_ROOT}/remote && bash setup.sh",
+                      timeout=SETUP_TIMEOUT_SECONDS)
     ssh_utils.run_ssh(
         host, port,
         f"cd {REMOTE_ROOT}/remote && "
@@ -73,30 +93,37 @@ def main() -> int:
     api_key = load_api_key()
     vast = VastAI(api_key=api_key)
 
-    instance = vast_provision.provision(vast)
-    host, port = deploy_and_launch(instance, args.model, args.n_trials)
-
-    final_status = poll_until_done(host, port)
-
-    local_log_path = os.path.join(STAGE1_DIR, "heretic_run.log")
+    instance = None
+    verdict = "error"
     try:
-        ssh_utils.scp_from(host, port, REMOTE_LOG_PATH, local_log_path)
-    except Exception as error:
-        print(f"warning: failed to pull run log: {error}", file=sys.stderr)
+        with provision_lock():
+            instance = vast_provision.provision(vast)
+        host, port = deploy_and_launch(instance, args.model, args.n_trials)
 
-    print(json.dumps(final_status, indent=2))
+        final_status = poll_until_done(host, port)
+        verdict = final_status.get("verdict", "error")
 
-    if final_status["verdict"] == "pass":
+        local_log_path = os.path.join(STAGE1_DIR, "heretic_run.log")
         try:
-            vast.stop_instance(id=instance["id"])
+            ssh_utils.scp_from(host, port, REMOTE_LOG_PATH, local_log_path)
         except Exception as error:
-            print(
-                f"warning: failed to stop instance {instance['id']}: {error}; "
-                "stop it manually to avoid continued billing",
-                file=sys.stderr,
-            )
+            print(f"warning: failed to pull run log: {error}", file=sys.stderr)
 
-    return 0 if final_status["verdict"] == "pass" else 1
+        print(json.dumps(final_status, indent=2))
+    finally:
+        # Always release the instance — any verdict (incl. fail/error) and any
+        # exception past provision() must not leave it billing indefinitely.
+        if instance is not None:
+            try:
+                vast.stop_instance(id=instance["id"])
+            except Exception as error:
+                print(
+                    f"warning: failed to stop instance {instance['id']}: {error}; "
+                    "stop it manually to avoid continued billing",
+                    file=sys.stderr,
+                )
+
+    return 0 if verdict == "pass" else 1
 
 
 if __name__ == "__main__":

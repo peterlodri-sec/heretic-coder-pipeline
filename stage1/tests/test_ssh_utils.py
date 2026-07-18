@@ -52,6 +52,46 @@ def test_run_ssh_raises_immediately_on_non_transient_failure():
     assert mock_run.call_count == 1
 
 
+def test_run_ssh_connect_timeout_and_command_timeout_are_independent():
+    with patch("ssh_utils.subprocess.run", return_value=_completed(0, stdout="ok\n")) as mock_run:
+        run_ssh("root@host", 1234, "long_cmd", timeout=1200, connect_timeout=15)
+    args = mock_run.call_args[0][0]
+    assert "ConnectTimeout=15" in args
+    # subprocess wall-clock wait tracks `timeout`, not `connect_timeout`
+    assert mock_run.call_args.kwargs["timeout"] == 1200
+
+
+def test_run_ssh_retries_on_command_timeout_then_succeeds():
+    responses = [
+        subprocess.TimeoutExpired(cmd="ssh", timeout=30),
+        _completed(0, stdout="done\n"),
+    ]
+    with patch("ssh_utils.subprocess.run", side_effect=responses), \
+         patch("ssh_utils.time.sleep") as mock_sleep:
+        result = run_ssh("root@host", 1234, "slow", retries=3, backoff=7)
+    assert result == "done\n"
+    mock_sleep.assert_called_once_with(7)
+
+
+def test_run_ssh_raises_ssherror_after_command_timeout_exhausts_retries():
+    responses = [subprocess.TimeoutExpired(cmd="ssh", timeout=30)] * 3
+    with patch("ssh_utils.subprocess.run", side_effect=responses), \
+         patch("ssh_utils.time.sleep"):
+        with pytest.raises(SSHError):
+            run_ssh("root@host", 1234, "slow", retries=3, backoff=1)
+
+
+def test_run_ssh_retries_on_kex_boot_race():
+    responses = [
+        _completed(255, stderr="kex_exchange_identification: Connection closed by remote host"),
+        _completed(0, stdout="up\n"),
+    ]
+    with patch("ssh_utils.subprocess.run", side_effect=responses), \
+         patch("ssh_utils.time.sleep"):
+        result = run_ssh("root@host", 1234, "echo up", retries=3, backoff=1)
+    assert result == "up\n"
+
+
 def test_scp_to_builds_recursive_command():
     with patch("ssh_utils.subprocess.run", return_value=_completed(0)) as mock_run:
         scp_to("root@host", 1234, "/local/dir", "/remote/dir", recursive=True)

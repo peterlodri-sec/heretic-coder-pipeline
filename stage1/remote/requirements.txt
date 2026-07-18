@@ -5,7 +5,10 @@
 # v1.4.0, predating that commit) — install from source, pinned, until a
 # release includes it.
 heretic-llm @ git+https://github.com/p-e-w/heretic.git@e7b783ed85
-huggingface_hub
-hf-transfer
-lm_eval
-optuna
+# Pin the rest too: an unpinned upstream breaking change is the same failure
+# class the heretic pin above just cured. Versions verified against heretic's
+# own ranges at e7b783e (huggingface-hub~=1.7, lm-eval~=0.4, optuna~=4.7).
+huggingface_hub==1.24.0
+hf-transfer==0.1.9
+lm_eval==0.4.12
+optuna==4.9.0

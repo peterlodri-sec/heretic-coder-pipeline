@@ -50,11 +50,13 @@ def rent_new_instance(vast, label: str = LABEL, query: str = OFFER_QUERY, image:
 
 def provision(vast, label: str = LABEL):
     existing = find_labeled_instance(vast, label)
-    if existing is not None:
-        if existing.get("actual_status") == "running":
-            return existing
-        try:
-            return start_instance(vast, existing["id"])
-        except ProvisionError:
-            pass
-    return rent_new_instance(vast, label)
+    if existing is None:
+        return rent_new_instance(vast, label)
+    if existing.get("actual_status") == "running":
+        return existing
+    # A labeled instance exists but is stopped: start it. Do NOT swallow a
+    # start failure and fall through to renting — that masks a persistent API
+    # error as "instance is gone" and orphans a second, billed instance.
+    # Terminated instances drop out of show_instances entirely, so reaching
+    # here means the instance is still ours to restart.
+    return start_instance(vast, existing["id"])
