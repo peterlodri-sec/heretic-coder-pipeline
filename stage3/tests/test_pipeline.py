@@ -15,36 +15,42 @@ class FakePairs(PairSource):
         yield from self._pairs
 
 
-def _p(source):
-    return PreferencePair(prompt=[{"role": "user", "content": "q"}],
-                          chosen="A", rejected="B", source=source)
+def _p(source, chosen="A", rejected="B"):
+    return PreferencePair(
+        prompt=[{"role": "user", "content": "q"}],
+        chosen=[{"role": "assistant", "content": chosen}],
+        rejected=[{"role": "assistant", "content": rejected}],
+        source=source,
+    )
 
 
 def test_build_writes_jsonl(tmp_path):
     out = tmp_path / "pairs.jsonl"
-    n = build([FakePairs("bfcl", [_p("bfcl"), _p("bfcl")])], str(out), contaminated=set())
+    n = build([FakePairs("xlam", [_p("xlam"), _p("xlam")])], str(out),
+              contaminated=frozenset())
     lines = out.read_text().splitlines()
     assert n == 2 and len(lines) == 2
     rec = json.loads(lines[0])
-    assert rec["chosen"] == "A" and rec["rejected"] == "B"
+    assert set(rec) == {"prompt", "chosen", "rejected"}
+    assert rec["chosen"] == [{"role": "assistant", "content": "A"}]
+    assert rec["rejected"] == [{"role": "assistant", "content": "B"}]
 
 
 def test_build_excludes_contaminated(tmp_path):
     out = tmp_path / "pairs.jsonl"
     build([FakePairs("sharegpt", [_p("sharegpt")])], str(out),
-          contaminated={"sharegpt"}, mode="exclude", min_pairs=0)
+          contaminated={"sharegpt"}, min_pairs=0)
     assert out.read_text() == ""
 
 
 def test_build_enforces_min_pairs(tmp_path):
     out = tmp_path / "pairs.jsonl"
     with pytest.raises(ValueError):
-        build([FakePairs("bfcl", [])], str(out), contaminated=set(), min_pairs=1)
+        build([FakePairs("xlam", [])], str(out), contaminated=frozenset(), min_pairs=1)
 
 
 def test_build_validates_pairs(tmp_path):
     out = tmp_path / "pairs.jsonl"
-    bad = PreferencePair(prompt=[{"role": "user", "content": "q"}],
-                         chosen="same", rejected="same", source="bfcl")
+    bad = _p("xlam", chosen="same", rejected="same")
     with pytest.raises(ValueError):
-        build([FakePairs("bfcl", [bad])], str(out), contaminated=set())
+        build([FakePairs("xlam", [bad])], str(out), contaminated=frozenset())

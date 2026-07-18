@@ -1,26 +1,45 @@
-from dataprep.schema import PreferencePair
 from dataprep.corruptions import make_rejected
-from shared.dataprep import loaders
 from dataprep.pairs.base import PairSource
+from dataprep.schema import PreferencePair
+from shared.dataprep import loaders
 
-CODE_DOMAINS = frozenset({"coding", "software", "devops", "data"})
+# Team-ACE/ToolACE conversation `from` roles map directly to our roles.
+_ROLE_MAP = {"user": "user", "assistant": "assistant", "tool": "tool"}
 
 
 class ToolACEPairs(PairSource):
+    """Team-ACE/ToolACE multi-turn tool-use conversations as preference pairs.
+
+    Real schema: `system` (str) + `conversations` (list of {from, value}). The
+    prompt is the conversation up to (and excluding) the last assistant turn
+    (system + user/tool turns); that last assistant turn is the chosen
+    completion; the rejected turn corrupts it via `wrong_args` (falls back to a
+    refusal for non-tool-call assistant text)."""
+
     name = "toolace"
 
     def pairs(self):
         for row in loaders.load_toolace_rows():
-            if row.get("domain") not in CODE_DOMAINS:
+            messages = [{"role": "system", "content": row["system"]}]
+            for turn in row["conversations"]:
+                role = _ROLE_MAP.get(turn["from"], turn["from"])
+                messages.append({"role": role, "content": turn["value"]})
+
+            last_assistant = next(
+                (i for i in range(len(messages) - 1, -1, -1)
+                 if messages[i]["role"] == "assistant"),
+                None,
+            )
+            if last_assistant is None:
                 continue
-            convo = list(row["conversation"])
-            chosen = next((m["content"] for m in reversed(convo) if m["role"] == "assistant"), None)
-            if chosen is None:
+            prompt = messages[:last_assistant]
+            if not any(m["role"] == "user" for m in prompt):
                 continue
-            prompt = [m for m in convo if m["role"] != "assistant"]
+            chosen_text = messages[last_assistant]["content"]
             yield PreferencePair(
-                prompt=prompt or [{"role": "user", "content": ""}],
-                chosen=chosen,
-                rejected=make_rejected(chosen, "malformed_args"),
+                prompt=prompt,
+                chosen=[{"role": "assistant", "content": chosen_text}],
+                rejected=[{"role": "assistant",
+                           "content": make_rejected(chosen_text, "wrong_args")}],
                 source=self.name,
             )

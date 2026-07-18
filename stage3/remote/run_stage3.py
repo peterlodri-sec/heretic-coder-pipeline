@@ -11,10 +11,9 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 import orpo_train
 import verdict
 from dataprep import pipeline as dataprep_pipeline
-from dataprep.pairs.bfcl import BFCLPairs
 from dataprep.pairs.crabcc import CrabccPairs
-from dataprep.pairs.swebench import SWEBenchPairs
 from dataprep.pairs.toolace import ToolACEPairs
+from dataprep.pairs.xlam import XLAMPairs
 from enums import Stage
 from shared import export
 from shared.enums import Verdict
@@ -32,8 +31,6 @@ NUM_EPOCHS = int(os.environ.get("STAGE3_EPOCHS", "1"))
 STATUS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "status.json")
 LOG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "orpo_run.log")
 CONTAMINATED = frozenset()
-
-SWEBENCH_DATASET = "princeton-nlp/SWE-bench_Verified"
 
 
 def update_status(status: Status, **fields) -> None:
@@ -54,21 +51,27 @@ def tail(path: str, n_chars: int = 4000) -> str:
 
 
 def _sources():
-    return [SWEBenchPairs(), BFCLPairs(), ToolACEPairs(), CrabccPairs(trace_dir=CRABCC_TRACE_DIR)]
+    return [XLAMPairs(), ToolACEPairs(), CrabccPairs(trace_dir=CRABCC_TRACE_DIR)]
 
 
 def _evaluate(check_swebench: bool) -> dict:
-    from shared.eval import bfcl, humaneval, refusal, swebench
+    from shared.eval import bfcl as eval_bfcl
+    from shared.eval import humaneval as eval_humaneval
+    from shared.eval import refusal as eval_refusal
+    from shared.eval import swebench as eval_swebench
     from shared.eval import datasets as eval_datasets
 
     refusal_prompts = eval_datasets.load_refusal_prompts()
     bfcl_cases = eval_datasets.load_bfcl_cases()
 
     return {
-        "refusal_rate": refusal.refusal_rate(MERGED_OUT, refusal_prompts),
-        "bfcl_accuracy": bfcl.accuracy(MERGED_OUT, bfcl_cases),
-        "humaneval_delta": humaneval.regression(MODEL_SOURCE, MERGED_OUT),
-        "swebench_resolve": (swebench.resolve_rate(MERGED_OUT, SWEBENCH_DATASET) if check_swebench else 1.0),
+        "refusal_rate": eval_refusal.refusal_rate(MERGED_OUT, refusal_prompts),
+        "bfcl_accuracy": eval_bfcl.accuracy(MERGED_OUT, bfcl_cases),
+        "humaneval_delta": eval_humaneval.regression(MODEL_SOURCE, MERGED_OUT),
+        "swebench_resolve": (
+            eval_swebench.resolve_rate(MERGED_OUT, model_name="candidate", limit=100)
+            if check_swebench else 1.0
+        ),
     }
 
 

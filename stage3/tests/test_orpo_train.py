@@ -17,13 +17,44 @@ def _fakes():
     return {"unsloth": unsloth, "trl": trl, "datasets": datasets}
 
 
-def test_train_returns_loss_and_model_tokenizer():
+def _run_train():
     fakes = _fakes()
-    fakes["trl"].ORPOTrainer.return_value.train.return_value = types.SimpleNamespace(training_loss=0.21)
+    fakes["trl"].ORPOTrainer.return_value.train.return_value = types.SimpleNamespace(
+        training_loss=0.21)
     with patch.dict(sys.modules, fakes):
         orpo_train = importlib.import_module("orpo_train")
         importlib.reload(orpo_train)
-        loss, model, tok = orpo_train.train("src", "pairs.jsonl", "out", num_epochs=1)
+        result = orpo_train.train("src", "pairs.jsonl", "out", num_epochs=1)
+    return fakes, result
+
+
+def test_train_returns_loss_and_model_tokenizer():
+    fakes, result = _run_train()
+    loss, model, tok = result
     assert loss == 0.21
+    assert model == "peft_model" and tok == "tok"
     fakes["trl"].ORPOTrainer.assert_called_once()
     fakes["unsloth"].FastLanguageModel.from_pretrained.assert_called_once()
+
+
+def test_from_pretrained_trains_in_16bit():
+    fakes, _ = _run_train()
+    kwargs = fakes["unsloth"].FastLanguageModel.from_pretrained.call_args.kwargs
+    assert kwargs["load_in_4bit"] is False
+    assert kwargs["model_name"] == "src"
+
+
+def test_orpotrainer_uses_processing_class_not_tokenizer():
+    fakes, _ = _run_train()
+    trainer_kwargs = fakes["trl"].ORPOTrainer.call_args.kwargs
+    assert trainer_kwargs["processing_class"] == "tok"
+    assert "tokenizer" not in trainer_kwargs
+
+
+def test_orpoconfig_uses_modern_kwargs():
+    fakes, _ = _run_train()
+    cfg = fakes["trl"].ORPOConfig.call_args.kwargs
+    assert cfg["beta"] == 0.1
+    assert cfg["max_length"] == 8192
+    assert cfg["max_prompt_length"] == 2048
+    assert cfg["bf16"] is True

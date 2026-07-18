@@ -12,25 +12,29 @@ def train(model_source: str, data_path: str, out_dir: str,
     from trl import ORPOConfig, ORPOTrainer
     from datasets import load_dataset
 
+    # H200 (141GB): train the 32B in bf16 (16-bit weights + LoRA) for quality —
+    # no 4-bit quantization during ORPO.
     model, tokenizer = FastLanguageModel.from_pretrained(
         model_name=model_source, max_seq_length=MAX_LENGTH,
-        load_in_4bit=True, dtype=None,
+        load_in_4bit=False, dtype=None,
     )
     model = FastLanguageModel.get_peft_model(
         model, r=64, lora_alpha=128, lora_dropout=0.0,
         target_modules=LORA_TARGETS,
         use_gradient_checkpointing="unsloth", random_state=42,
     )
+    # Conversational {prompt, chosen, rejected} triples are auto chat-templated
+    # by ORPOTrainer (TRL 0.24.0).
     dataset = load_dataset("json", data_files=data_path, split="train")
 
     trainer = ORPOTrainer(
-        model=model, tokenizer=tokenizer, train_dataset=dataset,
+        model=model, train_dataset=dataset, processing_class=tokenizer,
         args=ORPOConfig(
-            learning_rate=5e-6, beta=0.1,
-            max_length=MAX_LENGTH, max_prompt_length=MAX_PROMPT_LENGTH,
+            beta=0.1, max_length=MAX_LENGTH, max_prompt_length=MAX_PROMPT_LENGTH,
             num_train_epochs=num_epochs, per_device_train_batch_size=1,
-            gradient_accumulation_steps=8, bf16=True, optim="adamw_8bit",
-            lr_scheduler_type="cosine", logging_steps=10, output_dir=out_dir,
+            gradient_accumulation_steps=8, learning_rate=5e-6, bf16=True,
+            optim="adamw_8bit", lr_scheduler_type="cosine", logging_steps=10,
+            output_dir=out_dir,
         ),
     )
     stats = trainer.train()
