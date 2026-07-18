@@ -16,7 +16,7 @@ def poll_until_done(host, port, status_path, status_cls, done_stage, interval=30
             time.sleep(interval)
             continue
 
-        print(f"[{status.stage}] verdict={status.verdict}")
-        if status.stage is done_stage:
+        print(f"[{status.stage}] verdict={getattr(status, 'verdict', None)}")
+        if status.stage == done_stage:
             return status
         time.sleep(interval)

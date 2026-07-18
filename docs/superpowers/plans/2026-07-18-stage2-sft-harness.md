@@ -18,13 +18,17 @@ All test commands assume a venv with `vastai` + `pytest` installed (the stage1 d
 python3 -m venv .venv && . .venv/bin/activate && pip install vastai pytest
 ```
 
-Commands below use bare `pytest` — run them with that venv active. Run the whole suite from the repo root so `shared` is importable:
+Commands below use bare `pytest` — run them with that venv active, from the repo root.
+
+**Important — run each stage in its OWN pytest process.** stage1 and stage2 both contain bare-named modules (`enums.py`, `status_io.py`, `verdict.py`, `controller.py`); a single pytest process would bind each name once in `sys.modules` and let one stage shadow the other. So always run:
 
 ```bash
-pytest shared/tests stage1/tests stage2/tests -q
+pytest shared/tests -q
+pytest stage1/tests -q
+pytest stage2/tests -q
 ```
 
-A repo-root `conftest.py` (Task 1) puts the repo root and each stage dir on `sys.path` so both `import shared.xxx` and `import ssh_utils`-style intra-stage imports resolve under pytest.
+The repo-root `conftest.py` (Task 1) adds ONLY the repo root to `sys.path` (so `import shared.xxx` resolves everywhere). Each stage has its OWN `conftest.py` (`stage1/conftest.py`, `stage2/conftest.py`) that adds that stage's dir + `remote/` dir, so its bare intra-stage imports resolve without the other stage on the path.
 
 ---
 
