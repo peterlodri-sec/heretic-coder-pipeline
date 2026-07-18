@@ -48,10 +48,10 @@ def rent_new_instance(vast, label: str = LABEL, query: str = OFFER_QUERY, image:
     raise ProvisionError(f"newly created instance {instance_id} did not reach running in time")
 
 
-def provision(vast, label: str = LABEL):
+def provision(vast, label: str = LABEL, query: str = OFFER_QUERY, disk_gb: int = DISK_GB):
     existing = find_labeled_instance(vast, label)
     if existing is None:
-        return rent_new_instance(vast, label)
+        return rent_new_instance(vast, label, query=query, disk_gb=disk_gb)
     match existing.get("actual_status"):
         case "running":
             return existing

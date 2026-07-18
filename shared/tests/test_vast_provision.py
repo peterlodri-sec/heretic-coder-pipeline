@@ -131,3 +131,9 @@ def test_provision_rents_directly_when_no_labeled_instance():
     vast = FakeVast(offers=[{"id": 10, "dph_total": 1.0}])
     result = provision(vast)
     assert result["id"] == 999
+
+
+def test_provision_forwards_query_and_disk_to_rent():
+    vast = FakeVast(offers=[{"id": 10, "dph_total": 1.0}])
+    provision(vast, label="heretic-sft", query="q", disk_gb=400)
+    assert vast.created[0]["disk"] == 400
