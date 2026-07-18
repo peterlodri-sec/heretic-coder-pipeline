@@ -29,6 +29,7 @@ MERGED_OUT = "swe-coder-final"
 GGUF_OUT = "swe-coder-final-gguf"
 HF_REPO_ID = "PeetPedro/qwen2.5-coder-32b-instruct-heretic-sft"
 MAX_STEPS = int(os.environ.get("STAGE2_MAX_STEPS", "-1"))
+CHECK_SWEBENCH = os.environ.get("STAGE2_CHECK_SWEBENCH", "1") == "1"
 STATUS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "status.json")
 LOG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "sft_run.log")
 CONTAMINATED = frozenset()  # extend if a contaminated source is added later
@@ -146,4 +147,4 @@ def main(check_swebench: bool = True) -> None:
 
 
 if __name__ == "__main__":
-    main()
+    main(CHECK_SWEBENCH)

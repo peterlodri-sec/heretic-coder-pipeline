@@ -29,7 +29,8 @@ PROVISION_DISK_GB = 400  # base model + 5 datasets + LoRA + gguf export
 SSH_USER = "root"
 
 
-def deploy_and_launch(instance: dict, model: str, max_steps: int, crabcc_traces: str):
+def deploy_and_launch(instance: dict, model: str, max_steps: int, crabcc_traces: str,
+                      check_swebench: bool):
     host = f"{SSH_USER}@{instance['ssh_host']}"
     port = instance["ssh_port"]
 
@@ -42,6 +43,7 @@ def deploy_and_launch(instance: dict, model: str, max_steps: int, crabcc_traces:
         f"cd {REMOTE_ROOT}/remote && "
         f"STAGE2_MODEL='{model}' STAGE2_MAX_STEPS='{max_steps}' "
         f"STAGE2_CRABCC_TRACES='{crabcc_traces}' "
+        f"STAGE2_CHECK_SWEBENCH='{int(check_swebench)}' "
         "tmux new-session -d -s sft 'python3 run_stage2.py'"
     )
     return host, port
@@ -66,7 +68,8 @@ def main() -> int:
         with provision_lock():
             instance = vast_provision.provision(
                 vast, label=PROVISION_LABEL, query=PROVISION_QUERY, disk_gb=PROVISION_DISK_GB)
-        host, port = deploy_and_launch(instance, args.model, args.max_steps, args.crabcc_traces)
+        host, port = deploy_and_launch(instance, args.model, args.max_steps, args.crabcc_traces,
+                                       args.check_swebench)
 
         final_status = poll_until_done(host, port, REMOTE_STATUS_PATH, Status,
                                        Stage.DONE, POLL_INTERVAL_SECONDS)

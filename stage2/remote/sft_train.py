@@ -6,7 +6,7 @@ MAX_SEQ_LEN = 16384
 
 
 def train(model_source: str, data_path: str, out_dir: str,
-          max_steps: int = -1, num_epochs: int = 3) -> float:
+          max_steps: int = -1, num_epochs: int = 3) -> tuple[float, object, object]:
     from unsloth import FastLanguageModel
     from trl import SFTConfig, SFTTrainer
     from datasets import load_dataset

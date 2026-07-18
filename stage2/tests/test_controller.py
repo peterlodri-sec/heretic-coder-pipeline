@@ -50,6 +50,25 @@ def test_fail_still_stops():
     vast.stop_instance.assert_called_once_with(id=7)
 
 
+def _launch_cmd(check_swebench):
+    inst = {"ssh_host": "h", "ssh_port": 22}
+    with patch("controller.ssh_utils.scp_to"), \
+         patch("controller.ssh_utils.run_ssh") as run_ssh:
+        controller.deploy_and_launch(inst, "model", 5, "traces", check_swebench)
+    # last run_ssh call is the tmux launch; the command is the 3rd positional arg
+    return run_ssh.call_args_list[-1].args[2]
+
+
+def test_deploy_threads_check_swebench_disabled():
+    cmd = _launch_cmd(False)
+    assert "STAGE2_CHECK_SWEBENCH='0'" in cmd
+
+
+def test_deploy_threads_check_swebench_enabled():
+    cmd = _launch_cmd(True)
+    assert "STAGE2_CHECK_SWEBENCH='1'" in cmd
+
+
 def test_deploy_raises_still_stops():
     vast = MagicMock()
     inst = {"id": 7, "ssh_host": "h", "ssh_port": 22}
