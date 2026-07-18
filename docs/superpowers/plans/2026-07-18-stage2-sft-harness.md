@@ -1604,7 +1604,7 @@ MAX_SEQ_LEN = 16384
 
 
 def train(model_source: str, data_path: str, out_dir: str,
-          max_steps: int = -1, num_epochs: int = 3) -> float:
+          max_steps: int = -1, num_epochs: int = 3) -> tuple[float, object, object]:
     from unsloth import FastLanguageModel
     from trl import SFTConfig, SFTTrainer
     from datasets import load_dataset
@@ -1983,6 +1983,7 @@ MERGED_OUT = "swe-coder-final"
 GGUF_OUT = "swe-coder-final-gguf"
 HF_REPO_ID = "PeetPedro/qwen2.5-coder-32b-instruct-heretic-sft"
 MAX_STEPS = int(os.environ.get("STAGE2_MAX_STEPS", "-1"))
+CHECK_SWEBENCH = os.environ.get("STAGE2_CHECK_SWEBENCH", "1") == "1"
 STATUS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "status.json")
 LOG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "sft_run.log")
 CONTAMINATED = frozenset()  # extend if a contaminated source is added later
@@ -2105,7 +2106,7 @@ def main(check_swebench: bool = True) -> None:
 
 
 if __name__ == "__main__":
-    main()
+    main(CHECK_SWEBENCH)
 ```
 
 Note: the test's `_evaluate`/`publish` patches target `run_stage2._evaluate` and `run_stage2.publish`, so the eval-file reads are bypassed in tests.
@@ -2297,7 +2298,8 @@ PROVISION_DISK_GB = 400  # base model + 5 datasets + LoRA + gguf export
 SSH_USER = "root"
 
 
-def deploy_and_launch(instance: dict, model: str, max_steps: int, crabcc_traces: str):
+def deploy_and_launch(instance: dict, model: str, max_steps: int, crabcc_traces: str,
+                      check_swebench: bool):
     host = f"{SSH_USER}@{instance['ssh_host']}"
     port = instance["ssh_port"]
 
@@ -2309,7 +2311,7 @@ def deploy_and_launch(instance: dict, model: str, max_steps: int, crabcc_traces:
         host, port,
         f"cd {REMOTE_ROOT}/remote && "
         f"STAGE2_MODEL='{model}' STAGE2_MAX_STEPS='{max_steps}' "
-        f"STAGE2_CRABCC_TRACES='{crabcc_traces}' "
+        f"STAGE2_CRABCC_TRACES='{crabcc_traces}' STAGE2_CHECK_SWEBENCH='{int(check_swebench)}' "
         "tmux new-session -d -s sft 'python3 run_stage2.py'"
     )
     return host, port
@@ -2334,7 +2336,8 @@ def main() -> int:
         with provision_lock():
             instance = vast_provision.provision(
                 vast, label=PROVISION_LABEL, query=PROVISION_QUERY, disk_gb=PROVISION_DISK_GB)
-        host, port = deploy_and_launch(instance, args.model, args.max_steps, args.crabcc_traces)
+        host, port = deploy_and_launch(instance, args.model, args.max_steps,
+                                       args.crabcc_traces, args.check_swebench)
 
         final_status = poll_until_done(host, port, REMOTE_STATUS_PATH, Status,
                                        Stage.DONE, POLL_INTERVAL_SECONDS)
