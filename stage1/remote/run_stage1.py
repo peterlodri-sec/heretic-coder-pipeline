@@ -9,9 +9,10 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 
 import capability_eval
-import status_io
 import study_metrics
 import verdict
+from enums import Stage, Verdict
+from status_io import Status
 
 MODEL = os.environ.get("STAGE1_MODEL", "Qwen/Qwen2.5-Coder-32B-Instruct")
 N_TRIALS = int(os.environ.get("STAGE1_N_TRIALS", "200"))
@@ -24,10 +25,15 @@ HF_REPO_ID = "PeetPedro/qwen2.5-coder-32b-instruct-heretic"
 WALL_CLOCK_CEILING_SECONDS = 24 * 60 * 60
 
 
-def update_status(status: dict, **fields) -> None:
-    status.update(fields)
-    status["updated_at"] = str(time.time())
-    status_io.write_status(STATUS_PATH, status)
+class HereticError(RuntimeError):
+    """The heretic abliteration subprocess failed to run or exited non-zero."""
+
+
+def update_status(status: Status, **fields) -> None:
+    for name, value in fields.items():
+        setattr(status, name, value)  # slots => unknown field raises, not silently added
+    status.updated_at = str(time.time())
+    status.write(STATUS_PATH)
 
 
 def tail(path: str, n_chars: int = 4000) -> str:
@@ -40,7 +46,7 @@ def tail(path: str, n_chars: int = 4000) -> str:
         return f.read().decode("utf-8", errors="replace")
 
 
-def run_heretic():
+def run_heretic() -> None:
     cmd = [
         "heretic", "--model", MODEL,
         "--export-strategy", "merge",
@@ -57,42 +63,46 @@ def run_heretic():
                 cmd, stdout=logf, stderr=subprocess.STDOUT,
                 timeout=WALL_CLOCK_CEILING_SECONDS,
             )
-            return proc.returncode, None
-        except subprocess.TimeoutExpired:
-            return None, "wall-clock ceiling exceeded"
+        except subprocess.TimeoutExpired as error:
+            raise HereticError("wall-clock ceiling exceeded") from error
         except OSError as error:
-            return None, f"failed to launch heretic: {error}"
+            raise HereticError(f"failed to launch heretic: {error}") from error
+    if proc.returncode != 0:
+        raise HereticError(f"heretic exited with code {proc.returncode}")
 
 
-def main():
-    start_time = time.time()
-    status = status_io.new_status(str(start_time))
-    status_io.write_status(STATUS_PATH, status)
+def fail(status: Status, message: str) -> None:
+    update_status(status, stage=Stage.DONE, verdict=Verdict.ERROR,
+                  error=message, log_tail=tail(HERETIC_LOG_PATH))
 
-    update_status(status, stage="abliterating")
-    returncode, run_error = run_heretic()
 
-    if returncode is None:
-        update_status(status, stage="done", verdict="error",
-                       error=run_error, log_tail=tail(HERETIC_LOG_PATH))
-        return
-    if returncode != 0:
-        update_status(status, stage="done", verdict="error",
-                       error=f"heretic exited with code {returncode}",
-                       log_tail=tail(HERETIC_LOG_PATH))
-        return
+def publish(status: Status) -> None:
+    from huggingface_hub import HfApi
 
-    update_status(status, stage="evaluating")
+    api = HfApi()
+    api.create_repo(repo_id=HF_REPO_ID, private=True, exist_ok=True)
+    api.upload_folder(folder_path=EXPORT_DIR, repo_id=HF_REPO_ID)
+    update_status(status, hf_repo=HF_REPO_ID)
 
+
+def main() -> None:
+    status = Status.new(str(time.time()))
+    status.write(STATUS_PATH)
+
+    update_status(status, stage=Stage.ABLITERATING)
+    try:
+        run_heretic()
+    except HereticError as error:
+        return fail(status, str(error))
+
+    update_status(status, stage=Stage.EVALUATING)
     try:
         scores = study_metrics.load_chosen_trial_scores(STUDY_CHECKPOINT_DIR, MODEL, TRIAL_INDEX)
         base_results = capability_eval.run_benchmarks(MODEL)
         candidate_results = capability_eval.run_benchmarks(EXPORT_DIR)
         deltas = capability_eval.compute_deltas(base_results, candidate_results)
     except Exception as error:
-        update_status(status, stage="done", verdict="error",
-                       error=f"evaluation failed: {error}", log_tail=tail(HERETIC_LOG_PATH))
-        return
+        return fail(status, f"evaluation failed: {error}")
 
     metrics = {**scores, **deltas}
     result = verdict.compute_verdict(metrics)
@@ -103,21 +113,20 @@ def main():
         kl_divergence=metrics["kl_divergence"],
         mmlu_delta=metrics["mmlu_delta"],
         gsm8k_delta=metrics["gsm8k_delta"],
-        verdict=result["verdict"],
-        error=None if result["verdict"] == "pass" else "; ".join(result["reasons"]),
+        verdict=result.verdict,
+        error=None if result.passed else str(result),
     )
 
-    if result["verdict"] == "pass":
-        try:
-            from huggingface_hub import HfApi
-            api = HfApi()
-            api.create_repo(repo_id=HF_REPO_ID, private=True, exist_ok=True)
-            api.upload_folder(folder_path=EXPORT_DIR, repo_id=HF_REPO_ID)
-            update_status(status, hf_repo=HF_REPO_ID)
-        except Exception as error:
-            update_status(status, error=f"HF publish failed: {error}")
+    match result.verdict:
+        case Verdict.PASS:
+            try:
+                publish(status)
+            except Exception as error:
+                update_status(status, error=f"HF publish failed: {error}")
+        case _:
+            pass
 
-    update_status(status, stage="done", log_tail=tail(HERETIC_LOG_PATH))
+    update_status(status, stage=Stage.DONE, log_tail=tail(HERETIC_LOG_PATH))
 
 
 if __name__ == "__main__":

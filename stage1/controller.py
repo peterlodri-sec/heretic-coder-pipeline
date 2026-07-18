@@ -2,7 +2,6 @@
 # stage1/controller.py
 import argparse
 import fcntl
-import json
 import os
 import sys
 import time
@@ -11,8 +10,9 @@ from contextlib import contextmanager
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import ssh_utils
-import status_io
 import vast_provision
+from enums import Stage, Verdict
+from status_io import Status
 from vastai import VastAI
 
 STAGE1_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -63,21 +63,20 @@ def deploy_and_launch(instance: dict, model: str, n_trials: int):
     return host, port
 
 
-def poll_until_done(host: str, port: int, interval: int = POLL_INTERVAL_SECONDS) -> dict:
+def poll_until_done(host: str, port: int, interval: int = POLL_INTERVAL_SECONDS) -> Status:
     while True:
         try:
-            raw = ssh_utils.run_ssh(host, port, f"cat {REMOTE_STATUS_PATH}")
-            status = status_io.parse_status_text(raw)
-            stage = status["stage"]
-            verdict = status["verdict"]
-        except (ssh_utils.SSHError, ValueError, KeyError):
+            status = Status.from_json(ssh_utils.run_ssh(host, port, f"cat {REMOTE_STATUS_PATH}"))
+        except (ssh_utils.SSHError, ValueError):
             time.sleep(interval)
             continue
 
-        print(f"[{stage}] verdict={verdict}")
-        if stage == "done":
-            return status
-        time.sleep(interval)
+        print(f"[{status.stage}] verdict={status.verdict}")
+        match status.stage:
+            case Stage.DONE:
+                return status
+            case _:
+                time.sleep(interval)
 
 
 def parse_args():
@@ -94,14 +93,14 @@ def main() -> int:
     vast = VastAI(api_key=api_key)
 
     instance = None
-    verdict = "error"
+    verdict = Verdict.ERROR
     try:
         with provision_lock():
             instance = vast_provision.provision(vast)
         host, port = deploy_and_launch(instance, args.model, args.n_trials)
 
         final_status = poll_until_done(host, port)
-        verdict = final_status.get("verdict", "error")
+        verdict = final_status.verdict or Verdict.ERROR
 
         local_log_path = os.path.join(STAGE1_DIR, "heretic_run.log")
         try:
@@ -109,7 +108,7 @@ def main() -> int:
         except Exception as error:
             print(f"warning: failed to pull run log: {error}", file=sys.stderr)
 
-        print(json.dumps(final_status, indent=2))
+        print(final_status.to_json())
     finally:
         # Always release the instance — any verdict (incl. fail/error) and any
         # exception past provision() must not leave it billing indefinitely.
@@ -123,7 +122,7 @@ def main() -> int:
                     file=sys.stderr,
                 )
 
-    return 0 if verdict == "pass" else 1
+    return 0 if verdict is Verdict.PASS else 1
 
 
 if __name__ == "__main__":

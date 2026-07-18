@@ -1,3 +1,7 @@
+from dataclasses import dataclass
+
+from enums import Verdict
+
 THRESHOLDS = {
     "refusal_rate": 0.05,
     "kl_divergence": 0.3,
@@ -6,10 +10,25 @@ THRESHOLDS = {
 }
 
 
-def compute_verdict(metrics: dict) -> dict:
-    reasons = []
-    for key, limit in THRESHOLDS.items():
-        value = metrics[key]
-        if value >= limit:
-            reasons.append(f"{key} {value:.4f} >= {limit}")
-    return {"verdict": "fail" if reasons else "pass", "reasons": reasons}
+@dataclass(frozen=True, slots=True)
+class VerdictResult:
+    verdict: Verdict
+    reasons: tuple[str, ...] = ()
+
+    @property
+    def passed(self) -> bool:
+        return self.verdict is Verdict.PASS
+
+    def __str__(self) -> str:
+        if self.passed:
+            return str(self.verdict)
+        return f"{self.verdict}: {'; '.join(self.reasons)}"
+
+
+def compute_verdict(metrics: dict) -> VerdictResult:
+    reasons = tuple(
+        f"{key} {metrics[key]:.4f} >= {limit}"
+        for key, limit in THRESHOLDS.items()
+        if metrics[key] >= limit
+    )
+    return VerdictResult(Verdict.FAIL if reasons else Verdict.PASS, reasons)

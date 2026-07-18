@@ -9,8 +9,14 @@ import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import controller
+from enums import Stage, Verdict
+from status_io import Status
 
 _ARGS = argparse.Namespace(model="Qwen/Qwen2.5-Coder-32B-Instruct", n_trials=5)
+
+
+def _done(verdict):
+    return Status(started_at="0", updated_at="0", stage=Stage.DONE, verdict=verdict)
 
 
 def _patch_common(vast, provision_instance, deploy_result=("root@ssh1.vast.ai", 12345)):
@@ -39,7 +45,7 @@ def test_main_returns_zero_and_stops_instance_on_pass():
     vast = MagicMock()
     instance = {"id": 42, "ssh_host": "ssh1.vast.ai", "ssh_port": 12345}
     patches = _patch_common(vast, instance)
-    patches.append(patch("controller.poll_until_done", return_value={"stage": "done", "verdict": "pass"}))
+    patches.append(patch("controller.poll_until_done", return_value=_done(Verdict.PASS)))
 
     rc = _run_main_with(patches)
 
@@ -52,7 +58,7 @@ def test_main_still_stops_instance_on_fail_verdict():
     vast = MagicMock()
     instance = {"id": 42, "ssh_host": "ssh1.vast.ai", "ssh_port": 12345}
     patches = _patch_common(vast, instance)
-    patches.append(patch("controller.poll_until_done", return_value={"stage": "done", "verdict": "fail"}))
+    patches.append(patch("controller.poll_until_done", return_value=_done(Verdict.FAIL)))
 
     rc = _run_main_with(patches)
 
