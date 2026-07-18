@@ -15,6 +15,7 @@ from status_io import Status
 from vastai import VastAI
 
 STAGE1_DIR = os.path.dirname(os.path.abspath(__file__))
+SHARED_DIR = os.path.join(os.path.dirname(STAGE1_DIR), "shared")
 REMOTE_PARENT = "/root"
 REMOTE_ROOT = "/root/stage1"
 REMOTE_STATUS_PATH = f"{REMOTE_ROOT}/remote/status.json"
@@ -30,6 +31,7 @@ def deploy_and_launch(instance: dict, model: str, n_trials: int):
     host = f"{SSH_USER}@{instance['ssh_host']}"
     port = instance["ssh_port"]
 
+    ssh_utils.scp_to(host, port, SHARED_DIR, REMOTE_PARENT, recursive=True)
     ssh_utils.scp_to(host, port, STAGE1_DIR, REMOTE_PARENT, recursive=True)
     ssh_utils.run_ssh(host, port, f"cd {REMOTE_ROOT}/remote && bash setup.sh",
                       timeout=SETUP_TIMEOUT_SECONDS)
