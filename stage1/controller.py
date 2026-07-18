@@ -33,7 +33,7 @@ def deploy_and_launch(instance: dict, model: str, n_trials: int):
     port = instance["ssh_port"]
 
     ssh_utils.scp_to(host, port, STAGE1_DIR, REMOTE_PARENT, recursive=True)
-    ssh_utils.run_ssh(host, port, f"cd {REMOTE_ROOT}/remote && bash setup.sh")
+    ssh_utils.run_ssh(host, port, f"cd {REMOTE_ROOT}/remote && bash setup.sh", timeout=1200)
     ssh_utils.run_ssh(
         host, port,
         f"cd {REMOTE_ROOT}/remote && "
