@@ -1,12 +1,8 @@
-import os
-import sys
 from unittest.mock import patch
 
 import pytest
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-
-from vast_provision import (
+from shared.vast_provision import (
     LABEL,
     ProvisionError,
     find_labeled_instance,
@@ -111,7 +107,7 @@ def test_provision_starts_stopped_labeled_instance():
     )
     # provision() calls start_instance() with its real default backoff/poll_interval
     # (60s/10s) — mock time.sleep so this test doesn't actually wait on those.
-    with patch("vast_provision.time.sleep"):
+    with patch("shared.vast_provision.time.sleep"):
         result = provision(vast)
     assert result["id"] == 2
     assert vast.started_ids == [2]
@@ -125,7 +121,7 @@ def test_provision_raises_when_start_fails_and_does_not_rent():
         instances=[{"id": 2, "label": LABEL, "actual_status": "exited"}],
         offers=[{"id": 10, "dph_total": 1.0}],
     )
-    with patch("vast_provision.time.sleep"):
+    with patch("shared.vast_provision.time.sleep"):
         with pytest.raises(ProvisionError):
             provision(vast)
     assert vast.created == []

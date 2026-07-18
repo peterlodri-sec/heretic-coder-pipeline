@@ -1,18 +1,16 @@
 #!/usr/bin/env python3
 # stage1/controller.py
 import argparse
-import fcntl
 import os
 import sys
 import time
-from contextlib import contextmanager
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-import vast_provision
-from shared import ssh_utils
 from enums import Stage
+from shared import ssh_utils, vast_provision
 from shared.enums import Verdict
+from shared.vast_ops import load_api_key, provision_lock
 from status_io import Status
 from vastai import VastAI
 
@@ -21,31 +19,11 @@ REMOTE_PARENT = "/root"
 REMOTE_ROOT = "/root/stage1"
 REMOTE_STATUS_PATH = f"{REMOTE_ROOT}/remote/status.json"
 REMOTE_LOG_PATH = f"{REMOTE_ROOT}/remote/heretic_run.log"
-API_KEY_PATH = os.path.expanduser("~/.config/vastai/vast_api_key")
-PROVISION_LOCK_PATH = os.path.expanduser("~/.config/vastai/heretic-provision.lock")
 POLL_INTERVAL_SECONDS = 300
 # setup.sh runs apt-get + pip install (heretic-llm from git source, lm_eval,
 # optuna); 2-5+ min on a cold instance, far past a normal SSH command timeout.
 SETUP_TIMEOUT_SECONDS = 1200
 SSH_USER = "root"
-
-
-def load_api_key() -> str:
-    with open(API_KEY_PATH) as f:
-        return f.read().strip()
-
-
-@contextmanager
-def provision_lock():
-    # Serialize provision across concurrent controller runs so two of them
-    # can't both see "no labeled instance" and each rent one (double-rent race).
-    os.makedirs(os.path.dirname(PROVISION_LOCK_PATH), exist_ok=True)
-    with open(PROVISION_LOCK_PATH, "w") as lock_file:
-        fcntl.flock(lock_file, fcntl.LOCK_EX)
-        try:
-            yield
-        finally:
-            fcntl.flock(lock_file, fcntl.LOCK_UN)
 
 
 def deploy_and_launch(instance: dict, model: str, n_trials: int):
