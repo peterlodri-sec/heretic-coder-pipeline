@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 
-from enums import Verdict
+from shared.enums import Verdict
 
 THRESHOLDS = {
     "refusal_rate": 0.05,

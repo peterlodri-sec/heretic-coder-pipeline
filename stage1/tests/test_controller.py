@@ -9,7 +9,8 @@ import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import controller
-from enums import Stage, Verdict
+from enums import Stage
+from shared.enums import Verdict
 from status_io import Status
 
 _ARGS = argparse.Namespace(model="Qwen/Qwen2.5-Coder-32B-Instruct", n_trials=5)
@@ -100,3 +101,14 @@ def test_main_does_not_stop_when_provision_fails():
         _run_main_with(patches)
 
     vast.stop_instance.assert_not_called()
+
+
+def test_deploy_and_launch_ships_shared_and_stage_dir():
+    from unittest.mock import call
+    inst = {"ssh_host": "h", "ssh_port": 22}
+    with patch("controller.ssh_utils.scp_to") as scp, \
+         patch("controller.ssh_utils.run_ssh"):
+        controller.deploy_and_launch(inst, "model", 5)
+    dests = [c.args[3] for c in scp.call_args_list]  # remote_path arg
+    assert controller.REMOTE_PARENT in dests  # shared + stage1 both land under /root
+    assert scp.call_count >= 2

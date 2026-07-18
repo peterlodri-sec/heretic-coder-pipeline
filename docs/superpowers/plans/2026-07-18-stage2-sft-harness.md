@@ -18,13 +18,17 @@ All test commands assume a venv with `vastai` + `pytest` installed (the stage1 d
 python3 -m venv .venv && . .venv/bin/activate && pip install vastai pytest
 ```
 
-Commands below use bare `pytest` — run them with that venv active. Run the whole suite from the repo root so `shared` is importable:
+Commands below use bare `pytest` — run them with that venv active, from the repo root.
+
+**Important — run each stage in its OWN pytest process.** stage1 and stage2 both contain bare-named modules (`enums.py`, `status_io.py`, `verdict.py`, `controller.py`); a single pytest process would bind each name once in `sys.modules` and let one stage shadow the other. So always run:
 
 ```bash
-pytest shared/tests stage1/tests stage2/tests -q
+pytest shared/tests -q
+pytest stage1/tests -q
+pytest stage2/tests -q
 ```
 
-A repo-root `conftest.py` (Task 1) puts the repo root and each stage dir on `sys.path` so both `import shared.xxx` and `import ssh_utils`-style intra-stage imports resolve under pytest.
+The repo-root `conftest.py` (Task 1) adds ONLY the repo root to `sys.path` (so `import shared.xxx` resolves everywhere). Each stage has its OWN `conftest.py` (`stage1/conftest.py`, `stage2/conftest.py`) that adds that stage's dir + `remote/` dir, so its bare intra-stage imports resolve without the other stage on the path.
 
 ---
 
@@ -623,7 +627,20 @@ git commit -m "fix: ship shared/ to remote box so run_stage1 can import it"
 ### Task 7: stage2 package + Stage enum + Status
 
 **Files:**
-- Create: `stage2/__init__.py`, `stage2/enums.py`, `stage2/status_io.py`, `stage2/tests/__init__.py`, `stage2/tests/test_status_io.py`
+- Create: `stage2/conftest.py`, `stage2/__init__.py`, `stage2/enums.py`, `stage2/status_io.py`, `stage2/tests/__init__.py`, `stage2/tests/test_status_io.py`
+
+- [ ] **Step 0: Create stage2/conftest.py** (mirrors stage1/conftest.py — puts stage2's own dirs on sys.path so its bare imports resolve without stage1 shadowing them)
+
+```python
+# stage2/conftest.py — put stage2's own dirs on sys.path for its bare imports.
+import os
+import sys
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+for path in (HERE, os.path.join(HERE, "remote")):
+    if path not in sys.path:
+        sys.path.insert(0, path)
+```
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1562,7 +1579,7 @@ def test_train_returns_final_loss():
         import importlib
         sft_train = importlib.import_module("sft_train")
         importlib.reload(sft_train)
-        loss = sft_train.train("model_src", "data.jsonl", "out", max_steps=1)
+        loss, _model, _tok = sft_train.train("model_src", "data.jsonl", "out", max_steps=1)
     assert loss == 0.42
     fakes["unsloth"].FastLanguageModel.from_pretrained.assert_called_once()
 ```
@@ -1587,7 +1604,7 @@ MAX_SEQ_LEN = 16384
 
 
 def train(model_source: str, data_path: str, out_dir: str,
-          max_steps: int = -1, num_epochs: int = 3) -> float:
+          max_steps: int = -1, num_epochs: int = 3) -> tuple[float, object, object]:
     from unsloth import FastLanguageModel
     from trl import SFTConfig, SFTTrainer
     from datasets import load_dataset
@@ -1614,7 +1631,10 @@ def train(model_source: str, data_path: str, out_dir: str,
         ),
     )
     stats = trainer.train()
-    return float(stats.training_loss)
+    # Return the live PEFT model + tokenizer so run_stage2 can export (merge
+    # LoRA -> safetensors + gguf) without reloading. train() must NOT return a
+    # bare float — MERGED_OUT/GGUF_OUT are produced from these objects.
+    return float(stats.training_loss), model, tokenizer
 ```
 
 - [ ] **Step 4: Run to verify it passes**
@@ -1867,7 +1887,8 @@ def _reload():
 def _patches(rs, metrics, train_loss=0.3):
     return [
         patch.object(rs.dataprep_pipeline, "build", return_value=5),
-        patch.object(rs.sft_train, "train", return_value=train_loss),
+        patch.object(rs.sft_train, "train", return_value=(train_loss, MagicMock(), MagicMock())),
+        patch.object(rs.export, "export_model"),
         patch.object(rs, "_evaluate", return_value=metrics),
         patch.object(rs, "publish"),
     ]
@@ -1962,6 +1983,7 @@ MERGED_OUT = "swe-coder-final"
 GGUF_OUT = "swe-coder-final-gguf"
 HF_REPO_ID = "PeetPedro/qwen2.5-coder-32b-instruct-heretic-sft"
 MAX_STEPS = int(os.environ.get("STAGE2_MAX_STEPS", "-1"))
+CHECK_SWEBENCH = os.environ.get("STAGE2_CHECK_SWEBENCH", "1") == "1"
 STATUS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "status.json")
 LOG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "sft_run.log")
 CONTAMINATED = frozenset()  # extend if a contaminated source is added later
@@ -1970,9 +1992,9 @@ REFUSAL_PROMPTS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 
 BFCL_CASES_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "bfcl_cases.jsonl")
 SWEBENCH_DATASET = "princeton-nlp/SWE-bench_Verified"
 
-
-class Stage2Error(RuntimeError):
-    pass
+# Eval fixtures shipped in stage2/remote/: refusal_prompts.txt (one prompt per
+# line) and bfcl_cases.jsonl ({"prompt", "expected": {"name", "arguments"}} per
+# line). Ship placeholder sets; swap in the real eval corpora before a GPU run.
 
 
 def update_status(status: Status, **fields) -> None:
@@ -2047,8 +2069,10 @@ def main(check_swebench: bool = True) -> None:
 
     update_status(status, stage=Stage.TRAINING)
     try:
-        loss = sft_train.train(MODEL_SOURCE, DATA_PATH, SFT_OUT, max_steps=MAX_STEPS)
+        loss, model, tokenizer = sft_train.train(MODEL_SOURCE, DATA_PATH, SFT_OUT, max_steps=MAX_STEPS)
         update_status(status, train_loss=loss)
+        # Materialize MERGED_OUT (safetensors, for eval) + GGUF_OUT (for publish).
+        export.export_model(model, tokenizer, MERGED_OUT, GGUF_OUT)
     except Exception as error:
         return fail(status, f"training failed: {error}")
 
@@ -2082,7 +2106,7 @@ def main(check_swebench: bool = True) -> None:
 
 
 if __name__ == "__main__":
-    main()
+    main(CHECK_SWEBENCH)
 ```
 
 Note: the test's `_evaluate`/`publish` patches target `run_stage2._evaluate` and `run_stage2.publish`, so the eval-file reads are bypassed in tests.
@@ -2274,7 +2298,8 @@ PROVISION_DISK_GB = 400  # base model + 5 datasets + LoRA + gguf export
 SSH_USER = "root"
 
 
-def deploy_and_launch(instance: dict, model: str, max_steps: int, crabcc_traces: str):
+def deploy_and_launch(instance: dict, model: str, max_steps: int, crabcc_traces: str,
+                      check_swebench: bool):
     host = f"{SSH_USER}@{instance['ssh_host']}"
     port = instance["ssh_port"]
 
@@ -2286,7 +2311,7 @@ def deploy_and_launch(instance: dict, model: str, max_steps: int, crabcc_traces:
         host, port,
         f"cd {REMOTE_ROOT}/remote && "
         f"STAGE2_MODEL='{model}' STAGE2_MAX_STEPS='{max_steps}' "
-        f"STAGE2_CRABCC_TRACES='{crabcc_traces}' "
+        f"STAGE2_CRABCC_TRACES='{crabcc_traces}' STAGE2_CHECK_SWEBENCH='{int(check_swebench)}' "
         "tmux new-session -d -s sft 'python3 run_stage2.py'"
     )
     return host, port
@@ -2311,7 +2336,8 @@ def main() -> int:
         with provision_lock():
             instance = vast_provision.provision(
                 vast, label=PROVISION_LABEL, query=PROVISION_QUERY, disk_gb=PROVISION_DISK_GB)
-        host, port = deploy_and_launch(instance, args.model, args.max_steps, args.crabcc_traces)
+        host, port = deploy_and_launch(instance, args.model, args.max_steps,
+                                       args.crabcc_traces, args.check_swebench)
 
         final_status = poll_until_done(host, port, REMOTE_STATUS_PATH, Status,
                                        Stage.DONE, POLL_INTERVAL_SECONDS)
@@ -2366,10 +2392,15 @@ git commit -m "feat(stage2): controller (provision->deploy->poll->stop) + provis
 
 ### Task 21: Green the whole tree
 
-- [ ] **Step 1: Run everything**
+- [ ] **Step 1: Run everything (each stage in its own process)**
 
-Run: `pytest shared/tests stage1/tests stage2/tests -q`
-Expected: PASS (all stage1 tests still green + all new shared/stage2 tests).
+Run:
+```bash
+pytest shared/tests -q
+pytest stage1/tests -q
+pytest stage2/tests -q
+```
+Expected: PASS in all three (all stage1 tests still green + all new shared/stage2 tests). Do NOT combine into one invocation — stage1/stage2 share bare module names and would shadow each other in a single process.
 
 - [ ] **Step 2: Byte-compile + import smoke**
 

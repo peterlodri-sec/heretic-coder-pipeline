@@ -8,11 +8,3 @@ class Stage(StrEnum):
     ABLITERATING = "abliterating"
     EVALUATING = "evaluating"
     DONE = "done"
-
-
-class Verdict(StrEnum):
-    """Terminal outcome of a stage1 run."""
-
-    PASS = "pass"
-    FAIL = "fail"
-    ERROR = "error"

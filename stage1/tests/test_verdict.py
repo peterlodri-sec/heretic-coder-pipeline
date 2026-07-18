@@ -3,7 +3,7 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from enums import Verdict
+from shared.enums import Verdict
 from verdict import VerdictResult, compute_verdict
 
 
