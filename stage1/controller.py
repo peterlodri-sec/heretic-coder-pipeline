@@ -5,6 +5,7 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # repo root -> shared
 
 from enums import Stage
 from shared import ssh_utils, vast_provision
@@ -31,6 +32,7 @@ def deploy_and_launch(instance: dict, model: str, n_trials: int):
     host = f"{SSH_USER}@{instance['ssh_host']}"
     port = instance["ssh_port"]
 
+    ssh_utils.wait_for_ssh(host, port)  # fresh instance: wait for sshd before transferring
     ssh_utils.scp_to(host, port, SHARED_DIR, REMOTE_PARENT, recursive=True)
     ssh_utils.scp_to(host, port, STAGE1_DIR, REMOTE_PARENT, recursive=True)
     ssh_utils.run_ssh(host, port, f"cd {REMOTE_ROOT}/remote && bash setup.sh",
@@ -61,7 +63,11 @@ def main() -> int:
     verdict = Verdict.ERROR
     try:
         with provision_lock():
-            instance = vast_provision.provision(vast)
+            instance = vast_provision.provision(
+                vast,
+                query="gpu_name=H100_SXM disk_space>=400 rentable=true",
+                disk_gb=400,
+            )
         host, port = deploy_and_launch(instance, args.model, args.n_trials)
 
         final_status = poll_until_done(host, port, REMOTE_STATUS_PATH, Status, Stage.DONE, POLL_INTERVAL_SECONDS)

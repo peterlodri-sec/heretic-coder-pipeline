@@ -58,6 +58,51 @@ def run_ssh(host: str, port: int, command: str, timeout: int = 30,
     raise SSHError(f"ssh to {host}:{port} failed after {retries} attempts: {last_error.strip()}")
 
 
+def wait_for_ssh(host: str, port: int, attempts: int = 20, delay: int = 15,
+                 connect_timeout: int = 15) -> None:
+    """Block until the host accepts SSH. A freshly rented vast.ai instance takes
+    a while before sshd is up; transferring/commanding before then hangs until
+    the subprocess timeout. Poll a trivial command until it succeeds. Raises
+    SSHError if the host never becomes reachable."""
+    last_error = ""
+    for attempt in range(1, attempts + 1):
+        try:
+            run_ssh(host, port, "true", timeout=connect_timeout + 10,
+                    connect_timeout=connect_timeout, retries=1)
+            return
+        except SSHError as error:
+            last_error = str(error)
+            if attempt == attempts:
+                break
+            time.sleep(delay)
+    raise SSHError(
+        f"ssh to {host}:{port} never became ready after {attempts} attempts: {last_error}"
+    )
+
+
+def _run_scp(args: list, description: str, timeout: int, retries: int, backoff: int) -> None:
+    # Shared retry loop for scp_to/scp_from. Handles BOTH a non-zero exit with a
+    # transient stderr AND a subprocess.TimeoutExpired (a hung transfer to a
+    # not-yet-ready box) — the latter previously escaped unhandled and crashed
+    # the controller mid-deploy.
+    last_error = ""
+    for attempt in range(1, retries + 1):
+        try:
+            result = subprocess.run(args, capture_output=True, text=True, timeout=timeout)
+        except subprocess.TimeoutExpired:
+            last_error = f"exceeded {timeout}s wall-clock timeout"
+            if attempt == retries:
+                raise SSHError(f"{description} timed out (attempt {attempt}/{retries}): {last_error}")
+            time.sleep(backoff)
+            continue
+        if result.returncode == 0:
+            return
+        last_error = result.stderr
+        if not _is_transient(last_error) or attempt == retries:
+            raise SSHError(f"{description} failed (attempt {attempt}/{retries}): {last_error.strip()}")
+        time.sleep(backoff)
+
+
 def scp_to(host: str, port: int, local_path: str, remote_path: str,
            recursive: bool = False, timeout: int = 120,
            retries: int = 3, backoff: int = 10) -> None:
@@ -65,18 +110,7 @@ def scp_to(host: str, port: int, local_path: str, remote_path: str,
     if recursive:
         args.append("-r")
     args += [local_path, f"{host}:{remote_path}"]
-
-    last_stderr = ""
-    for attempt in range(1, retries + 1):
-        result = subprocess.run(args, capture_output=True, text=True, timeout=timeout)
-        if result.returncode == 0:
-            return
-        last_stderr = result.stderr
-        if not _is_transient(last_stderr) or attempt == retries:
-            raise SSHError(
-                f"scp {local_path} -> {host}:{remote_path} failed (attempt {attempt}/{retries}): {last_stderr.strip()}"
-            )
-        time.sleep(backoff)
+    _run_scp(args, f"scp {local_path} -> {host}:{remote_path}", timeout, retries, backoff)
 
 
 def scp_from(host: str, port: int, remote_path: str, local_path: str, timeout: int = 300,
@@ -85,15 +119,4 @@ def scp_from(host: str, port: int, remote_path: str, local_path: str, timeout: i
         "scp", "-P", str(port), "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=accept-new",
         f"{host}:{remote_path}", local_path,
     ]
-
-    last_stderr = ""
-    for attempt in range(1, retries + 1):
-        result = subprocess.run(args, capture_output=True, text=True, timeout=timeout)
-        if result.returncode == 0:
-            return
-        last_stderr = result.stderr
-        if not _is_transient(last_stderr) or attempt == retries:
-            raise SSHError(
-                f"scp {host}:{remote_path} -> {local_path} failed (attempt {attempt}/{retries}): {last_stderr.strip()}"
-            )
-        time.sleep(backoff)
+    _run_scp(args, f"scp {host}:{remote_path} -> {local_path}", timeout, retries, backoff)

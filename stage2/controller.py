@@ -34,6 +34,7 @@ def deploy_and_launch(instance: dict, model: str, max_steps: int, crabcc_traces:
     host = f"{SSH_USER}@{instance['ssh_host']}"
     port = instance["ssh_port"]
 
+    ssh_utils.wait_for_ssh(host, port)  # fresh instance: wait for sshd before transferring
     ssh_utils.scp_to(host, port, SHARED_DIR, REMOTE_PARENT, recursive=True)
     ssh_utils.scp_to(host, port, STAGE2_DIR, REMOTE_PARENT, recursive=True)
     ssh_utils.run_ssh(host, port, f"cd {REMOTE_ROOT}/remote && bash setup.sh",

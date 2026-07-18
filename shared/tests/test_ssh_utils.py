@@ -3,7 +3,7 @@ from unittest.mock import patch
 
 import pytest
 
-from shared.ssh_utils import SSHError, run_ssh, scp_from, scp_to
+from shared.ssh_utils import SSHError, run_ssh, scp_from, scp_to, wait_for_ssh
 
 
 def _completed(returncode, stdout="", stderr=""):
@@ -113,6 +113,52 @@ def test_scp_to_retries_on_transient_failure_then_succeeds():
          patch("shared.ssh_utils.time.sleep") as mock_sleep:
         scp_to("root@host", 1234, "/local/dir", "/remote/dir", retries=3, backoff=5)
     mock_sleep.assert_called_once_with(5)
+
+
+def test_scp_to_retries_on_timeout_then_succeeds():
+    responses = [
+        subprocess.TimeoutExpired(cmd="scp", timeout=120),
+        _completed(0),
+    ]
+    with patch("shared.ssh_utils.subprocess.run", side_effect=responses), \
+         patch("shared.ssh_utils.time.sleep") as mock_sleep:
+        scp_to("root@host", 1234, "/local/dir", "/remote/dir", retries=3, backoff=7)
+    mock_sleep.assert_called_once_with(7)
+
+
+def test_scp_to_raises_ssherror_after_timeout_exhausts_retries():
+    responses = [subprocess.TimeoutExpired(cmd="scp", timeout=120)] * 3
+    with patch("shared.ssh_utils.subprocess.run", side_effect=responses), \
+         patch("shared.ssh_utils.time.sleep"):
+        with pytest.raises(SSHError):
+            scp_to("root@host", 1234, "/local/dir", "/remote/dir", retries=3, backoff=1)
+
+
+def test_wait_for_ssh_returns_immediately_when_reachable():
+    with patch("shared.ssh_utils.subprocess.run", return_value=_completed(0)) as run, \
+         patch("shared.ssh_utils.time.sleep") as mock_sleep:
+        wait_for_ssh("root@host", 1234, attempts=5, delay=15)
+    assert run.call_count == 1
+    mock_sleep.assert_not_called()
+
+
+def test_wait_for_ssh_retries_until_reachable():
+    responses = [
+        _completed(255, stderr="ssh: connect to host x port 22: Connection refused"),
+        _completed(0),
+    ]
+    with patch("shared.ssh_utils.subprocess.run", side_effect=responses), \
+         patch("shared.ssh_utils.time.sleep") as mock_sleep:
+        wait_for_ssh("root@host", 1234, attempts=5, delay=3)
+    mock_sleep.assert_called_once_with(3)
+
+
+def test_wait_for_ssh_raises_after_attempts_exhausted():
+    with patch("shared.ssh_utils.subprocess.run",
+               return_value=_completed(255, stderr="Connection refused")), \
+         patch("shared.ssh_utils.time.sleep"):
+        with pytest.raises(SSHError):
+            wait_for_ssh("root@host", 1234, attempts=3, delay=1)
 
 
 def test_scp_from_builds_command():
