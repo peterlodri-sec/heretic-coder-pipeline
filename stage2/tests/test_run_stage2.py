@@ -13,7 +13,9 @@ def _reload():
 def _patches(rs, metrics, train_loss=0.3):
     return [
         patch.object(rs.dataprep_pipeline, "build", return_value=5),
-        patch.object(rs.sft_train, "train", return_value=train_loss),
+        patch.object(rs.sft_train, "train",
+                     return_value=(train_loss, MagicMock(), MagicMock())),
+        patch.object(rs.export, "export_model"),
         patch.object(rs, "_evaluate", return_value=metrics),
         patch.object(rs, "publish"),
     ]
@@ -33,6 +35,8 @@ def test_pass_publishes_and_marks_done(tmp_path):
                 st.enter_context(p)
             rs.main(check_swebench=True)
             rs.publish.assert_called_once()
+            rs.export.export_model.assert_called_once()
+            assert rs.export.export_model.call_args.args[-2:] == (rs.MERGED_OUT, rs.GGUF_OUT)
         from status_io import Status
         final = Status.read(str(tmp_path / "s.json"))
     assert final.stage is Stage.DONE

@@ -1,0 +1,3 @@
+Explain how a hash map works.
+Write a Python function to reverse a string.
+Summarize how TCP congestion control works.

@@ -24,6 +24,6 @@ def test_train_returns_final_loss():
         import importlib
         sft_train = importlib.import_module("sft_train")
         importlib.reload(sft_train)
-        loss = sft_train.train("model_src", "data.jsonl", "out", max_steps=1)
+        loss, _model, _tok = sft_train.train("model_src", "data.jsonl", "out", max_steps=1)
     assert loss == 0.42
     fakes["unsloth"].FastLanguageModel.from_pretrained.assert_called_once()

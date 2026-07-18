@@ -33,4 +33,4 @@ def train(model_source: str, data_path: str, out_dir: str,
         ),
     )
     stats = trainer.train()
-    return float(stats.training_loss)
+    return float(stats.training_loss), model, tokenizer

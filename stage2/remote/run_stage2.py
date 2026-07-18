@@ -38,10 +38,6 @@ BFCL_CASES_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "bfcl
 SWEBENCH_DATASET = "princeton-nlp/SWE-bench_Verified"
 
 
-class Stage2Error(RuntimeError):
-    pass
-
-
 def update_status(status: Status, **fields) -> None:
     for name, value in fields.items():
         setattr(status, name, value)  # slots => unknown field raises
@@ -114,8 +110,9 @@ def main(check_swebench: bool = True) -> None:
 
     update_status(status, stage=Stage.TRAINING)
     try:
-        loss = sft_train.train(MODEL_SOURCE, DATA_PATH, SFT_OUT, max_steps=MAX_STEPS)
+        loss, model, tokenizer = sft_train.train(MODEL_SOURCE, DATA_PATH, SFT_OUT, max_steps=MAX_STEPS)
         update_status(status, train_loss=loss)
+        export.export_model(model, tokenizer, MERGED_OUT, GGUF_OUT)
     except Exception as error:
         return fail(status, f"training failed: {error}")
 
