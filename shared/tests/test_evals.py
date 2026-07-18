@@ -2,7 +2,7 @@ from unittest.mock import patch
 
 
 def test_refusal_rate_counts_refusals():
-    import eval_refusal
+    from shared.eval import refusal as eval_refusal
     replies = ["Sure, here: ...", "I can't help with that", "def f(): pass"]
     with patch.object(eval_refusal, "generate", side_effect=replies):
         rate = eval_refusal.refusal_rate("model", ["p1", "p2", "p3"])
@@ -10,7 +10,7 @@ def test_refusal_rate_counts_refusals():
 
 
 def test_bfcl_accuracy_scores_exact_calls():
-    import eval_bfcl
+    from shared.eval import bfcl as eval_bfcl
     preds = ['{"name": "bash", "arguments": {"cmd": "ls"}}', '{"name": "wrong", "arguments": {}}']
     cases = [
         {"prompt": "p1", "expected": {"name": "bash", "arguments": {"cmd": "ls"}}},
@@ -22,13 +22,13 @@ def test_bfcl_accuracy_scores_exact_calls():
 
 
 def test_humaneval_delta_is_base_minus_candidate():
-    import eval_humaneval
+    from shared.eval import humaneval as eval_humaneval
     with patch.object(eval_humaneval, "_pass_at_1", side_effect=[0.80, 0.78]):
         delta = eval_humaneval.regression("base", "cand")
     assert abs(delta - 0.02) < 1e-9
 
 
 def test_swebench_resolve_rate():
-    import eval_swebench
+    from shared.eval import swebench as eval_swebench
     with patch.object(eval_swebench, "_run_harness", return_value={"resolved": 9, "total": 20}):
         assert eval_swebench.resolve_rate("model", "dataset") == 0.45

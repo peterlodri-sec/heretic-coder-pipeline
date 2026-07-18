@@ -64,10 +64,10 @@ def _sources():
 
 
 def _evaluate(check_swebench: bool) -> dict:
-    import eval_bfcl
-    import eval_humaneval
-    import eval_refusal
-    import eval_swebench
+    from shared.eval import bfcl as eval_bfcl
+    from shared.eval import humaneval as eval_humaneval
+    from shared.eval import refusal as eval_refusal
+    from shared.eval import swebench as eval_swebench
     import json
 
     with open(REFUSAL_PROMPTS_FILE) as f:
