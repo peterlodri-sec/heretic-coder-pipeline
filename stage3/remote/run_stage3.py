@@ -33,8 +33,6 @@ STATUS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "status.j
 LOG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "orpo_run.log")
 CONTAMINATED = frozenset()
 
-REFUSAL_PROMPTS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "refusal_prompts.txt")
-BFCL_CASES_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "bfcl_cases.jsonl")
 SWEBENCH_DATASET = "princeton-nlp/SWE-bench_Verified"
 
 
@@ -60,14 +58,11 @@ def _sources():
 
 
 def _evaluate(check_swebench: bool) -> dict:
-    import json
-
     from shared.eval import bfcl, humaneval, refusal, swebench
+    from shared.eval import datasets as eval_datasets
 
-    with open(REFUSAL_PROMPTS_FILE) as f:
-        refusal_prompts = [line.strip() for line in f if line.strip()]
-    with open(BFCL_CASES_FILE) as f:
-        bfcl_cases = [json.loads(line) for line in f if line.strip()]
+    refusal_prompts = eval_datasets.load_refusal_prompts()
+    bfcl_cases = eval_datasets.load_bfcl_cases()
 
     return {
         "refusal_rate": refusal.refusal_rate(MERGED_OUT, refusal_prompts),
