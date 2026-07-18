@@ -1,38 +1,37 @@
 #!/usr/bin/env python3
-# stage2/remote/run_stage2.py
+# stage3/remote/run_stage3.py
 import os
 import sys
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))                    # remote/
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # stage2/
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # stage3/
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))  # repo root -> shared
 
-from shared import export
-import sft_train
+import orpo_train
 import verdict
 from dataprep import pipeline as dataprep_pipeline
-from dataprep.sources.bfcl import BFCLSource
-from dataprep.sources.crabcc import CrabccSource
-from dataprep.sources.magicoder import MagicoderSource
-from dataprep.sources.swebench import SWEBenchSource
-from dataprep.sources.toolace import ToolACESource
+from dataprep.pairs.bfcl import BFCLPairs
+from dataprep.pairs.crabcc import CrabccPairs
+from dataprep.pairs.swebench import SWEBenchPairs
+from dataprep.pairs.toolace import ToolACEPairs
 from enums import Stage
+from shared import export
 from shared.enums import Verdict
 from status_io import Status
 
-MODEL_SOURCE = os.environ.get("STAGE2_MODEL", "PeetPedro/qwen2.5-coder-32b-instruct-heretic")
-CRABCC_TRACE_DIR = os.environ.get("STAGE2_CRABCC_TRACES", "traces")
-DATA_PATH = "train.jsonl"
-SFT_OUT = "swe-coder-sft"
-MERGED_OUT = "swe-coder-final"
-GGUF_OUT = "swe-coder-final-gguf"
-HF_REPO_ID = "PeetPedro/qwen2.5-coder-32b-instruct-heretic-sft"
-MAX_STEPS = int(os.environ.get("STAGE2_MAX_STEPS", "-1"))
-CHECK_SWEBENCH = os.environ.get("STAGE2_CHECK_SWEBENCH", "1") == "1"
+MODEL_SOURCE = os.environ.get("STAGE3_MODEL", "PeetPedro/qwen2.5-coder-32b-instruct-heretic-sft")
+CRABCC_TRACE_DIR = os.environ.get("STAGE3_CRABCC_TRACES", "traces")
+CHECK_SWEBENCH = os.environ.get("STAGE3_CHECK_SWEBENCH", "1") == "1"
+DATA_PATH = "pairs.jsonl"
+ORPO_OUT = "swe-coder-orpo"
+MERGED_OUT = "swe-coder-orpo-final"
+GGUF_OUT = "swe-coder-orpo-final-gguf"
+HF_REPO_ID = "PeetPedro/qwen2.5-coder-32b-instruct-heretic-orpo"
+NUM_EPOCHS = int(os.environ.get("STAGE3_EPOCHS", "1"))
 STATUS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "status.json")
-LOG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "sft_run.log")
-CONTAMINATED = frozenset()  # extend if a contaminated source is added later
+LOG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "orpo_run.log")
+CONTAMINATED = frozenset()
 
 REFUSAL_PROMPTS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "refusal_prompts.txt")
 BFCL_CASES_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "bfcl_cases.jsonl")
@@ -57,33 +56,25 @@ def tail(path: str, n_chars: int = 4000) -> str:
 
 
 def _sources():
-    return [
-        SWEBenchSource(), BFCLSource(), ToolACESource(),
-        MagicoderSource(), CrabccSource(trace_dir=CRABCC_TRACE_DIR),
-    ]
+    return [SWEBenchPairs(), BFCLPairs(), ToolACEPairs(), CrabccPairs(trace_dir=CRABCC_TRACE_DIR)]
 
 
 def _evaluate(check_swebench: bool) -> dict:
-    from shared.eval import bfcl as eval_bfcl
-    from shared.eval import humaneval as eval_humaneval
-    from shared.eval import refusal as eval_refusal
-    from shared.eval import swebench as eval_swebench
     import json
+
+    from shared.eval import bfcl, humaneval, refusal, swebench
 
     with open(REFUSAL_PROMPTS_FILE) as f:
         refusal_prompts = [line.strip() for line in f if line.strip()]
     with open(BFCL_CASES_FILE) as f:
         bfcl_cases = [json.loads(line) for line in f if line.strip()]
 
-    metrics = {
-        "refusal_rate": eval_refusal.refusal_rate(MERGED_OUT, refusal_prompts),
-        "bfcl_accuracy": eval_bfcl.accuracy(MERGED_OUT, bfcl_cases),
-        "humaneval_delta": eval_humaneval.regression(MODEL_SOURCE, MERGED_OUT),
-        "swebench_resolve": (
-            eval_swebench.resolve_rate(MERGED_OUT, SWEBENCH_DATASET) if check_swebench else 1.0
-        ),
+    return {
+        "refusal_rate": refusal.refusal_rate(MERGED_OUT, refusal_prompts),
+        "bfcl_accuracy": bfcl.accuracy(MERGED_OUT, bfcl_cases),
+        "humaneval_delta": humaneval.regression(MODEL_SOURCE, MERGED_OUT),
+        "swebench_resolve": (swebench.resolve_rate(MERGED_OUT, SWEBENCH_DATASET) if check_swebench else 1.0),
     }
-    return metrics
 
 
 def publish(status: Status) -> None:
@@ -111,7 +102,7 @@ def main(check_swebench: bool = True) -> None:
 
     update_status(status, stage=Stage.TRAINING)
     try:
-        loss, model, tokenizer = sft_train.train(MODEL_SOURCE, DATA_PATH, SFT_OUT, max_steps=MAX_STEPS)
+        loss, model, tokenizer = orpo_train.train(MODEL_SOURCE, DATA_PATH, ORPO_OUT, num_epochs=NUM_EPOCHS)
         update_status(status, train_loss=loss)
         export.export_model(model, tokenizer, MERGED_OUT, GGUF_OUT)
     except Exception as error:

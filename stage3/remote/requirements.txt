@@ -1,0 +1,12 @@
+# stage3 ORPO deps — same stack as stage2 (trl provides ORPOTrainer). Pin to
+# avoid unpinned upstream breaks; bump deliberately.
+unsloth==2025.6.1
+trl==0.9.6
+transformers==4.44.2
+datasets==2.21.0
+accelerate==0.34.2
+peft==0.12.0
+bitsandbytes==0.43.3
+huggingface_hub==1.24.0
+hf-transfer==0.1.9
+lm_eval==0.4.12

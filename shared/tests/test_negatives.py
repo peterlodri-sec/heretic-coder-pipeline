@@ -1,6 +1,6 @@
 import pytest
-from dataprep.negatives import negative_ratio, require_negatives
-from dataprep.schema import TrainingExample
+from shared.dataprep.negatives import negative_ratio, require_negatives
+from shared.dataprep.schema import TrainingExample
 
 
 def _ex(is_neg):

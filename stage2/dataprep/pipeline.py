@@ -1,8 +1,8 @@
 import json
 
-from dataprep.contamination import filter_contaminated
-from dataprep.negatives import require_negatives
-from dataprep.schema import validate_example
+from shared.dataprep.contamination import filter_contaminated
+from shared.dataprep.negatives import require_negatives
+from shared.dataprep.schema import validate_example
 
 
 def build(sources, out_path, contaminated, mode="downweight", weight=0.1,

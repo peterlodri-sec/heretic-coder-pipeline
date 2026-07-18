@@ -1,12 +1,10 @@
-from dataprep.schema import TrainingExample
+import dataclasses
 
 
 def filter_contaminated(examples, contaminated, mode="downweight", weight=0.1):
     """Handle RLHF-contaminated sources (ShareGPT/Alpaca-derived) that can
-    re-express refusal directions post-abliteration.
-
-    mode="exclude": drop them. mode="downweight": scale weight to `weight`.
-    """
+    re-express refusal directions. mode="exclude" drops them; mode="downweight"
+    scales their `weight`. Works for any dataclass with `source` + `weight`."""
     if mode not in ("downweight", "exclude"):
         raise ValueError(f"unknown mode {mode!r}")
     out = []
@@ -14,7 +12,7 @@ def filter_contaminated(examples, contaminated, mode="downweight", weight=0.1):
         if ex.source in contaminated:
             if mode == "exclude":
                 continue
-            out.append(TrainingExample(ex.source, ex.messages, weight, ex.is_negative))
+            out.append(dataclasses.replace(ex, weight=weight))
         else:
             out.append(ex)
     return out

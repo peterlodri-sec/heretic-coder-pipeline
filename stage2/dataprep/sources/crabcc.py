@@ -1,15 +1,6 @@
-from dataprep.schema import TrainingExample, tool_call_block, tool_response_block
-from dataprep.sources.base import DataSource
-
-
-def load_traces(trace_dir):
-    import glob
-    import json
-    traces = []
-    for path in glob.glob(f"{trace_dir}/*.json"):
-        with open(path) as f:
-            traces.append(json.load(f))
-    return traces
+from shared.dataprep.schema import TrainingExample, tool_call_block, tool_response_block
+from shared.dataprep.sources.base import DataSource
+from shared.dataprep import loaders
 
 
 class CrabccSource(DataSource):
@@ -21,7 +12,7 @@ class CrabccSource(DataSource):
         self.trace_dir = trace_dir
 
     def examples(self):
-        for trace in load_traces(self.trace_dir):
+        for trace in loaders.load_traces(self.trace_dir):
             messages = []
             for turn in trace["turns"]:
                 match turn["role"]:

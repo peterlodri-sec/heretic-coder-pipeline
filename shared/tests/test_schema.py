@@ -1,6 +1,6 @@
 import json
 
-from dataprep.schema import (TrainingExample, tool_call_block,
+from shared.dataprep.schema import (TrainingExample, tool_call_block,
                              tool_response_block, validate_example)
 
 

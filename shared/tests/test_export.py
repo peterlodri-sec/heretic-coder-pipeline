@@ -1,6 +1,6 @@
 from unittest.mock import MagicMock
 
-import export
+from shared import export
 
 
 def test_export_saves_merged_and_gguf():

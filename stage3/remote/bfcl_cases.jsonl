@@ -1,0 +1,2 @@
+{"prompt": "List files in the current directory.", "expected": {"name": "bash", "arguments": {"cmd": "ls"}}}
+{"prompt": "Show git status.", "expected": {"name": "bash", "arguments": {"cmd": "git status"}}}
