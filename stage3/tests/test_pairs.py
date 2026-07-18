@@ -43,6 +43,7 @@ def test_toolace_code_domain_only():
     with patch("shared.dataprep.loaders.load_toolace_rows", return_value=rows):
         pairs = list(ToolACEPairs().pairs())
     assert len(pairs) == 1 and pairs[0].source == "toolace"
+    assert pairs[0].chosen != pairs[0].rejected
 
 
 def test_crabcc_builds_pair_from_trace():

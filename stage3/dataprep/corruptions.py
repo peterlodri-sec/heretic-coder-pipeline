@@ -17,16 +17,20 @@ def _parse_call(chosen: str):
 
 def wrong_tool(chosen: str) -> str:
     call = _parse_call(chosen)
-    if call is None:
+    if call is None or "name" not in call:
         return REFUSAL_TEXT
-    return tool_call_block(f"not_{call['name']}", call["arguments"])
+    return tool_call_block(f"not_{call['name']}", call.get("arguments", {}))
 
 
 def malformed_args(chosen: str) -> str:
     call = _parse_call(chosen)
-    if call is None:
+    if call is None or "name" not in call:
         return REFUSAL_TEXT
-    return tool_call_block(call["name"], {})
+    args = call.get("arguments", {})
+    # Always differ from `chosen`: empty args -> inject a spurious one;
+    # non-empty args -> strip them. Either way it's a malformed-args rejection.
+    corrupted = {"__unexpected__": None} if not args else {}
+    return tool_call_block(call["name"], corrupted)
 
 
 def hallucinated_output(chosen: str) -> str:

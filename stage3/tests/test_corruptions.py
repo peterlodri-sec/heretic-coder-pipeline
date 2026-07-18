@@ -23,6 +23,12 @@ def test_malformed_args_drops_arguments():
     assert _call(rej)["arguments"] == {}
 
 
+def test_malformed_args_on_empty_args_still_differs():
+    empty = tool_call_block("bash", {})
+    rej = make_rejected(empty, "malformed_args")
+    assert rej != empty
+
+
 def test_hallucinated_output_appends_fake_response():
     rej = make_rejected(CHOSEN, "hallucinated_output")
     assert "<tool_response>" in rej and rej != CHOSEN

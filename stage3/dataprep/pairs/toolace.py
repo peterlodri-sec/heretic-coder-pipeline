@@ -14,8 +14,10 @@ class ToolACEPairs(PairSource):
             if row.get("domain") not in CODE_DOMAINS:
                 continue
             convo = list(row["conversation"])
+            chosen = next((m["content"] for m in reversed(convo) if m["role"] == "assistant"), None)
+            if chosen is None:
+                continue
             prompt = [m for m in convo if m["role"] != "assistant"]
-            chosen = convo[-1]["content"]
             yield PreferencePair(
                 prompt=prompt or [{"role": "user", "content": ""}],
                 chosen=chosen,
