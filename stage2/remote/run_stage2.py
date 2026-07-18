@@ -8,7 +8,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))                  
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # stage2/
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))  # repo root -> shared
 
-import export
+from shared import export
 import sft_train
 import verdict
 from dataprep import pipeline as dataprep_pipeline
