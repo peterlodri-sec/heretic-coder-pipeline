@@ -3,13 +3,13 @@
 import argparse
 import os
 import sys
-import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from enums import Stage
 from shared import ssh_utils, vast_provision
 from shared.enums import Verdict
+from shared.poll import poll_until_done
 from shared.vast_ops import load_api_key, provision_lock
 from status_io import Status
 from vastai import VastAI
@@ -42,22 +42,6 @@ def deploy_and_launch(instance: dict, model: str, n_trials: int):
     return host, port
 
 
-def poll_until_done(host: str, port: int, interval: int = POLL_INTERVAL_SECONDS) -> Status:
-    while True:
-        try:
-            status = Status.from_json(ssh_utils.run_ssh(host, port, f"cat {REMOTE_STATUS_PATH}"))
-        except (ssh_utils.SSHError, ValueError):
-            time.sleep(interval)
-            continue
-
-        print(f"[{status.stage}] verdict={status.verdict}")
-        match status.stage:
-            case Stage.DONE:
-                return status
-            case _:
-                time.sleep(interval)
-
-
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", default="Qwen/Qwen2.5-Coder-32B-Instruct")
@@ -78,7 +62,7 @@ def main() -> int:
             instance = vast_provision.provision(vast)
         host, port = deploy_and_launch(instance, args.model, args.n_trials)
 
-        final_status = poll_until_done(host, port)
+        final_status = poll_until_done(host, port, REMOTE_STATUS_PATH, Status, Stage.DONE, POLL_INTERVAL_SECONDS)
         verdict = final_status.verdict or Verdict.ERROR
 
         local_log_path = os.path.join(STAGE1_DIR, "heretic_run.log")
