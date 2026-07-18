@@ -24,7 +24,7 @@ REMOTE_LOG_PATH = f"{REMOTE_ROOT}/remote/sft_run.log"
 POLL_INTERVAL_SECONDS = 300
 SETUP_TIMEOUT_SECONDS = 1800  # unsloth + trl + transformers + datasets install is heavy
 PROVISION_LABEL = "heretic-sft"
-PROVISION_QUERY = "gpu_name=A100_SXM4 disk_space>=400"
+PROVISION_QUERY = "gpu_name=H100_SXM disk_space>=400 rentable=true"
 PROVISION_DISK_GB = 400  # base model + 5 datasets + LoRA + gguf export
 SSH_USER = "root"
 
