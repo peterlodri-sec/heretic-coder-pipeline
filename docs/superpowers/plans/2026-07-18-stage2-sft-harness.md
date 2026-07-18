@@ -627,7 +627,20 @@ git commit -m "fix: ship shared/ to remote box so run_stage1 can import it"
 ### Task 7: stage2 package + Stage enum + Status
 
 **Files:**
-- Create: `stage2/__init__.py`, `stage2/enums.py`, `stage2/status_io.py`, `stage2/tests/__init__.py`, `stage2/tests/test_status_io.py`
+- Create: `stage2/conftest.py`, `stage2/__init__.py`, `stage2/enums.py`, `stage2/status_io.py`, `stage2/tests/__init__.py`, `stage2/tests/test_status_io.py`
+
+- [ ] **Step 0: Create stage2/conftest.py** (mirrors stage1/conftest.py — puts stage2's own dirs on sys.path so its bare imports resolve without stage1 shadowing them)
+
+```python
+# stage2/conftest.py — put stage2's own dirs on sys.path for its bare imports.
+import os
+import sys
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+for path in (HERE, os.path.join(HERE, "remote")):
+    if path not in sys.path:
+        sys.path.insert(0, path)
+```
 
 - [ ] **Step 1: Write the failing test**
 
@@ -2370,10 +2383,15 @@ git commit -m "feat(stage2): controller (provision->deploy->poll->stop) + provis
 
 ### Task 21: Green the whole tree
 
-- [ ] **Step 1: Run everything**
+- [ ] **Step 1: Run everything (each stage in its own process)**
 
-Run: `pytest shared/tests stage1/tests stage2/tests -q`
-Expected: PASS (all stage1 tests still green + all new shared/stage2 tests).
+Run:
+```bash
+pytest shared/tests -q
+pytest stage1/tests -q
+pytest stage2/tests -q
+```
+Expected: PASS in all three (all stage1 tests still green + all new shared/stage2 tests). Do NOT combine into one invocation — stage1/stage2 share bare module names and would shadow each other in a single process.
 
 - [ ] **Step 2: Byte-compile + import smoke**
 
