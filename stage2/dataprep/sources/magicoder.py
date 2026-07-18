@@ -1,19 +1,13 @@
-from dataprep.schema import TrainingExample
-from dataprep.sources.base import DataSource
-
-DATASET_ID = "ise-uiuc/Magicoder-OSS-Instruct-75K"
-
-
-def load_rows():
-    from datasets import load_dataset
-    return load_dataset(DATASET_ID, split="train")
+from shared.dataprep.schema import TrainingExample
+from shared.dataprep.sources.base import DataSource
+from shared.dataprep import loaders
 
 
 class MagicoderSource(DataSource):
     name = "magicoder"
 
     def examples(self):
-        for row in load_rows():
+        for row in loaders.load_magicoder_rows():
             yield TrainingExample(
                 source=self.name,
                 messages=[

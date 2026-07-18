@@ -1,19 +1,13 @@
-from dataprep.schema import TrainingExample
-from dataprep.sources.base import DataSource
-
-DATASET_ID = "princeton-nlp/SWE-bench_Verified"
-
-
-def load_rows():
-    from datasets import load_dataset
-    return load_dataset(DATASET_ID, split="test")
+from shared.dataprep.schema import TrainingExample
+from shared.dataprep.sources.base import DataSource
+from shared.dataprep import loaders
 
 
 class SWEBenchSource(DataSource):
     name = "swebench"
 
     def examples(self):
-        for row in load_rows():
+        for row in loaders.load_swebench_rows():
             if not row.get("resolved"):
                 continue  # gold trajectories = resolved instances only
             messages = [

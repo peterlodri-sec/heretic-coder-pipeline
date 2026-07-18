@@ -1,6 +1,6 @@
 import pytest
-from dataprep.contamination import filter_contaminated
-from dataprep.schema import TrainingExample
+from shared.dataprep.contamination import filter_contaminated
+from shared.dataprep.schema import TrainingExample
 
 
 def _ex(source):

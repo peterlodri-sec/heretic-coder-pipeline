@@ -1,8 +1,8 @@
 import json
 
 from dataprep.pipeline import build
-from dataprep.schema import TrainingExample
-from dataprep.sources.base import DataSource
+from shared.dataprep.schema import TrainingExample
+from shared.dataprep.sources.base import DataSource
 
 
 class FakeSource(DataSource):
