@@ -52,7 +52,8 @@ def test_fail_still_stops():
 
 def _launch_cmd(check_swebench):
     inst = {"ssh_host": "h", "ssh_port": 22}
-    with patch("controller.ssh_utils.scp_to"), \
+    with patch("controller.local_hf_token_path", return_value=None), \
+         patch("controller.ssh_utils.scp_to"), \
          patch("controller.ssh_utils.run_ssh") as run_ssh:
         controller.deploy_and_launch(inst, "model", 5, "traces", check_swebench)
     # last run_ssh call is the tmux launch; the command is the 3rd positional arg
@@ -67,6 +68,18 @@ def test_deploy_threads_check_swebench_disabled():
 def test_deploy_threads_check_swebench_enabled():
     cmd = _launch_cmd(True)
     assert "STAGE2_CHECK_SWEBENCH='1'" in cmd
+
+
+def test_deploy_ships_hf_token_and_enables_hf_transfer():
+    inst = {"ssh_host": "h", "ssh_port": 22}
+    with patch("controller.local_hf_token_path", return_value="/tmp/tok"), \
+         patch("controller.ssh_utils.scp_to") as scp, \
+         patch("controller.ssh_utils.run_ssh") as run_ssh:
+        controller.deploy_and_launch(inst, "model", 5, "traces", True)
+    token_dests = [c.args[3] for c in scp.call_args_list]
+    assert "/root/.cache/huggingface/token" in token_dests
+    launched = " ".join(str(c) for c in run_ssh.call_args_list)
+    assert "HF_HUB_ENABLE_HF_TRANSFER=1" in launched
 
 
 def test_deploy_raises_still_stops():

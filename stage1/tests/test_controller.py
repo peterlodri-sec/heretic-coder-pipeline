@@ -104,11 +104,23 @@ def test_main_does_not_stop_when_provision_fails():
 
 
 def test_deploy_and_launch_ships_shared_and_stage_dir():
-    from unittest.mock import call
     inst = {"ssh_host": "h", "ssh_port": 22}
-    with patch("controller.ssh_utils.scp_to") as scp, \
+    with patch("controller.local_hf_token_path", return_value=None), \
+         patch("controller.ssh_utils.scp_to") as scp, \
          patch("controller.ssh_utils.run_ssh"):
         controller.deploy_and_launch(inst, "model", 5)
     dests = [c.args[3] for c in scp.call_args_list]  # remote_path arg
     assert controller.REMOTE_PARENT in dests  # shared + stage1 both land under /root
     assert scp.call_count >= 2
+
+
+def test_deploy_and_launch_ships_hf_token_and_enables_hf_transfer():
+    inst = {"ssh_host": "h", "ssh_port": 22}
+    with patch("controller.local_hf_token_path", return_value="/tmp/tok"), \
+         patch("controller.ssh_utils.scp_to") as scp, \
+         patch("controller.ssh_utils.run_ssh") as run_ssh:
+        controller.deploy_and_launch(inst, "model", 5)
+    token_dests = [c.args[3] for c in scp.call_args_list]
+    assert "/root/.cache/huggingface/token" in token_dests
+    launched = " ".join(str(c) for c in run_ssh.call_args_list)
+    assert "HF_HUB_ENABLE_HF_TRANSFER=1" in launched

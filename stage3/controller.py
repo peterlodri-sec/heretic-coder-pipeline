@@ -11,7 +11,7 @@ from enums import Stage
 from shared import ssh_utils, vast_provision
 from shared.enums import Verdict
 from shared.poll import poll_until_done
-from shared.vast_ops import load_api_key, provision_lock
+from shared.vast_ops import load_api_key, local_hf_token_path, provision_lock
 from status_io import Status
 from vastai import VastAI
 
@@ -35,13 +35,17 @@ def deploy_and_launch(instance: dict, model: str, epochs: int, crabcc_traces: st
     port = instance["ssh_port"]
 
     ssh_utils.wait_for_ssh(host, port)  # fresh instance: wait for sshd before transferring
+    token = local_hf_token_path()
+    if token:
+        ssh_utils.run_ssh(host, port, "mkdir -p /root/.cache/huggingface")
+        ssh_utils.scp_to(host, port, token, "/root/.cache/huggingface/token")
     ssh_utils.scp_to(host, port, SHARED_DIR, REMOTE_PARENT, recursive=True)
     ssh_utils.scp_to(host, port, STAGE3_DIR, REMOTE_PARENT, recursive=True)
     ssh_utils.run_ssh(host, port, f"cd {REMOTE_ROOT}/remote && bash setup.sh",
                       timeout=SETUP_TIMEOUT_SECONDS)
     ssh_utils.run_ssh(
         host, port,
-        f"cd {REMOTE_ROOT}/remote && "
+        f"cd {REMOTE_ROOT}/remote && HF_HUB_ENABLE_HF_TRANSFER=1 "
         f"STAGE3_MODEL='{model}' STAGE3_EPOCHS='{epochs}' "
         f"STAGE3_CRABCC_TRACES='{crabcc_traces}' STAGE3_CHECK_SWEBENCH='{int(check_swebench)}' "
         "tmux new-session -d -s orpo 'python3 run_stage3.py'"

@@ -68,11 +68,25 @@ def test_deploy_raises_still_stops():
 
 def test_deploy_and_launch_threads_check_swebench():
     inst = {"ssh_host": "h", "ssh_port": 22}
-    with patch("controller.ssh_utils.scp_to"), patch("controller.ssh_utils.run_ssh") as run_ssh:
+    with patch("controller.local_hf_token_path", return_value=None), \
+         patch("controller.ssh_utils.scp_to"), patch("controller.ssh_utils.run_ssh") as run_ssh:
         controller.deploy_and_launch(inst, "m", 1, "traces", False)
     launched = " ".join(str(c) for c in run_ssh.call_args_list)
     assert "STAGE3_CHECK_SWEBENCH='0'" in launched
-    with patch("controller.ssh_utils.scp_to"), patch("controller.ssh_utils.run_ssh") as run_ssh:
+    with patch("controller.local_hf_token_path", return_value=None), \
+         patch("controller.ssh_utils.scp_to"), patch("controller.ssh_utils.run_ssh") as run_ssh:
         controller.deploy_and_launch(inst, "m", 1, "traces", True)
     launched = " ".join(str(c) for c in run_ssh.call_args_list)
     assert "STAGE3_CHECK_SWEBENCH='1'" in launched
+
+
+def test_deploy_ships_hf_token_and_enables_hf_transfer():
+    inst = {"ssh_host": "h", "ssh_port": 22}
+    with patch("controller.local_hf_token_path", return_value="/tmp/tok"), \
+         patch("controller.ssh_utils.scp_to") as scp, \
+         patch("controller.ssh_utils.run_ssh") as run_ssh:
+        controller.deploy_and_launch(inst, "m", 1, "traces", True)
+    token_dests = [c.args[3] for c in scp.call_args_list]
+    assert "/root/.cache/huggingface/token" in token_dests
+    launched = " ".join(str(c) for c in run_ssh.call_args_list)
+    assert "HF_HUB_ENABLE_HF_TRANSFER=1" in launched
