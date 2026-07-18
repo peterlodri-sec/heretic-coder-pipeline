@@ -9,8 +9,8 @@ from contextlib import contextmanager
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-import ssh_utils
 import vast_provision
+from shared import ssh_utils
 from enums import Stage, Verdict
 from status_io import Status
 from vastai import VastAI
