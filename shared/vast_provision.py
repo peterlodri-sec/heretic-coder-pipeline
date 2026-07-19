@@ -30,12 +30,19 @@ def start_instance(vast, instance_id, retries: int = 3, backoff: int = 60, poll_
 
 
 def rent_new_instance(vast, label: str = LABEL, query: str = OFFER_QUERY, image: str = IMAGE,
-                       disk_gb: int = DISK_GB, poll_interval: int = 10, max_wait_polls: int = 30):
+                       disk_gb: int = DISK_GB, poll_interval: int = 10, max_wait_polls: int = 30,
+                       interruptible: bool = False):
     offers = vast.search_offers(query=query)
     if not offers:
         raise ProvisionError(f"no offers matched query: {query}")
     offer = min(offers, key=lambda o: o["dph_total"])
 
+    # Cost lever (plan Gemini): interruptible/spot H200s run ~40-60% cheaper and,
+    # since stages checkpoint, a preempt just resumes. TODO(infra): wire a spot
+    # rental here — vast bids need a `min_bid`/price arg on create_instance that
+    # this vastai SDK build's signature must be verified against before we pass it.
+    # Threaded end-to-end (controller --interruptible -> provision -> here); the
+    # actual bid arg is intentionally NOT faked until the SDK contract is checked.
     result = vast.create_instance(id=offer["id"], image=image, disk=disk_gb)
     instance_id = result["new_contract"]
     vast.label_instance(id=instance_id, label=label)
@@ -48,10 +55,12 @@ def rent_new_instance(vast, label: str = LABEL, query: str = OFFER_QUERY, image:
     raise ProvisionError(f"newly created instance {instance_id} did not reach running in time")
 
 
-def provision(vast, label: str = LABEL, query: str = OFFER_QUERY, disk_gb: int = DISK_GB):
+def provision(vast, label: str = LABEL, query: str = OFFER_QUERY, disk_gb: int = DISK_GB,
+              interruptible: bool = False):
     existing = find_labeled_instance(vast, label)
     if existing is None:
-        return rent_new_instance(vast, label, query=query, disk_gb=disk_gb)
+        return rent_new_instance(vast, label, query=query, disk_gb=disk_gb,
+                                 interruptible=interruptible)
     match existing.get("actual_status"):
         case "running":
             return existing

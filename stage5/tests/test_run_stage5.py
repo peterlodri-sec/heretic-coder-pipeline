@@ -63,3 +63,24 @@ def test_train_stub_marks_error(tmp_path):
         final = Status.read(str(tmp_path / "s.json"))
     assert final.stage is Stage.DONE and final.verdict is Verdict.ERROR
     assert "training failed" in final.error
+
+
+def test_distill_mode_is_the_default():
+    rs = _reload()
+    assert rs.MODE == "distill"
+
+
+def test_unsupported_mode_raises_and_marks_error(tmp_path):
+    # live-rl / offline-kto not wired yet -> NotImplementedError -> error verdict.
+    rs = _reload()
+    with patch.object(rs, "STATUS_PATH", str(tmp_path / "s.json")), \
+         patch.object(rs, "tail", return_value=""), \
+         patch.object(rs, "MODE", "live-rl"), \
+         patch.object(rs, "prepare_data", return_value=10), \
+         patch.object(rs.rlvr_train, "train") as train:
+        rs.main()
+        final = Status.read(str(tmp_path / "s.json"))
+    train.assert_not_called()  # never reaches the trainer for an unwired mode
+    assert final.stage is Stage.DONE and final.verdict is Verdict.ERROR
+    assert "training failed" in final.error
+    assert "live-rl" in final.error

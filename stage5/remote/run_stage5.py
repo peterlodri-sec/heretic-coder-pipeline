@@ -20,14 +20,20 @@ from shared.dataprep import loaders
 from shared.enums import Verdict
 from status_io import Status
 
-MODEL_SOURCE = os.environ.get("STAGE5_MODEL", "PeetPedro/qwen2.5-coder-32b-instruct-heretic-rft")
+MODEL_SOURCE = os.environ.get("STAGE5_MODEL", "PeetPedro/gpt-oss-120b-heretic-rft")
+FAMILY = os.environ.get("STAGE5_FAMILY", "gpt_oss")
 NUM_GPUS = int(os.environ.get("STAGE5_NUM_GPUS", "2"))
 CHECK_SWEBENCH = os.environ.get("STAGE5_CHECK_SWEBENCH", "1") == "1"
+CHEAP_EVAL = os.environ.get("CHEAP_EVAL", "0") == "1"  # reduced SWE-bench in dev
+# RLVR mode (plan Gemini §1). distill (default): RFT-on-120B traces -> SFT, cheapest
+# good option, sidesteps the KV-cache wall. offline-kto / live-rl: deferred (KTO
+# noise + 2-4x H200 KV-cache survival kit) -> NotImplementedError until wired.
+MODE = os.environ.get("STAGE5_MODE", "distill")
 DATA_PATH = "rlvr_tasks.jsonl"
 RLVR_OUT = "swe-coder-rlvr"
 MERGED_OUT = "swe-coder-rlvr-final"
 GGUF_OUT = "swe-coder-rlvr-final-gguf"
-HF_REPO_ID = "PeetPedro/qwen2.5-coder-32b-instruct-heretic-rlvr"
+HF_REPO_ID = "PeetPedro/gpt-oss-120b-heretic-rlvr"
 STATUS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "status.json")
 LOG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "rlvr_run.log")
 
@@ -67,7 +73,8 @@ def _evaluate(check_swebench: bool) -> dict:
     # Isolate evals from the training process (unsloth monkey-patches transformers).
     repo_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # -> /root
     stage_remote = os.path.dirname(os.path.abspath(__file__))
-    env = {**os.environ, "PYTHONPATH": repo_root, "HF_ALLOW_CODE_EVAL": "1"}
+    env = {**os.environ, "PYTHONPATH": repo_root, "HF_ALLOW_CODE_EVAL": "1",
+           "CHEAP_EVAL": "1" if CHEAP_EVAL else "0"}  # eval runner reads CHEAP_EVAL
     proc = subprocess.run(
         [sys.executable, "-m", "shared.eval.run_evals", MERGED_OUT, MODEL_SOURCE,
          "1" if check_swebench else "0"],
@@ -89,6 +96,19 @@ def publish(status: Status) -> None:
     update_status(status, hf_repo=HF_REPO_ID)
 
 
+def _train_for_mode(mode: str):
+    """Dispatch the terminal RLVR training path by mode. Only `distill` is wired
+    (routes the execution-filtered data through the GSPO trainer). live-rl and
+    offline-kto raise until their machinery (KV-cache kit / KTO pairs) lands."""
+    if mode == "distill":
+        return rlvr_train.train(MODEL_SOURCE, DATA_PATH, RLVR_OUT,
+                                num_gpus=NUM_GPUS, family=FAMILY)
+    raise NotImplementedError(
+        f"stage5 mode '{mode}' not implemented; only 'distill' is wired. "
+        "live-rl needs the 2-4x H200 KV-cache survival kit; offline-kto needs "
+        "RFT-labeled preference pairs — see the 2026-07-19 plan (Gemini §1).")
+
+
 def fail(status: Status, message: str) -> None:
     update_status(status, stage=Stage.DONE, verdict=Verdict.ERROR,
                   error=message, log_tail=tail(LOG_PATH))
@@ -106,8 +126,7 @@ def main(check_swebench: bool = True) -> None:
 
     update_status(status, stage=Stage.TRAINING)
     try:
-        reward, model, tokenizer = rlvr_train.train(MODEL_SOURCE, DATA_PATH, RLVR_OUT,
-                                                    num_gpus=NUM_GPUS)
+        reward, model, tokenizer = _train_for_mode(MODE)
         update_status(status, train_loss=reward)
         export.export_model(model, tokenizer, MERGED_OUT, GGUF_OUT)
     except Exception as error:

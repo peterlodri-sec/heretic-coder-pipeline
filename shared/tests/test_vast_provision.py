@@ -137,3 +137,17 @@ def test_provision_forwards_query_and_disk_to_rent():
     vast = FakeVast(offers=[{"id": 10, "dph_total": 1.0}])
     provision(vast, label="heretic-sft", query="q", disk_gb=400)
     assert vast.created[0]["disk"] == 400
+
+
+def test_provision_accepts_interruptible_flag():
+    # Cost lever: the flag threads controller -> provision -> rent without error
+    # (spot bid wiring is a documented TODO, not faked).
+    vast = FakeVast(offers=[{"id": 10, "dph_total": 1.0}])
+    result = provision(vast, disk_gb=400, interruptible=True)
+    assert result["id"] == 999
+
+
+def test_rent_new_instance_accepts_interruptible_flag():
+    vast = FakeVast(offers=[{"id": 10, "dph_total": 1.0}])
+    result = rent_new_instance(vast, poll_interval=0, interruptible=True)
+    assert result["actual_status"] == "running"
