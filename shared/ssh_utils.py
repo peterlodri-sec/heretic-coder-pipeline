@@ -9,7 +9,7 @@ TRANSIENT_MARKERS = (
     "Connection refused",
     # sshd not fully up yet right after a vast.ai instance boots
     "kex_exchange_identification",
-    "Connection closed by remote host",
+    "Connection closed",  # covers "closed by remote host" AND "closed by <ip> port N"
     "Connection reset by peer",
 )
 
