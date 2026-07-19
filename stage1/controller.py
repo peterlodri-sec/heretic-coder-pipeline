@@ -75,8 +75,9 @@ def main() -> int:
         with provision_lock():
             instance = vast_provision.provision(
                 vast,
-                # ~240GB bf16 export for the 120B -> bump disk to 600.
-                query="gpu_name=H100_SXM disk_space>=600 rentable=true",
+                # 120B 4-bit (~65GB) + activations needs margin -> H200 141GB.
+                # ~240GB bf16 export -> disk 600.
+                query="gpu_name=H200 disk_space>=600 rentable=true",
                 disk_gb=600,
                 interruptible=args.interruptible,
             )
