@@ -55,6 +55,7 @@ def _launch_cmd(check_swebench):
     inst = {"ssh_host": "h", "ssh_port": 22}
     with patch("controller.local_hf_token_path", return_value=None), \
          patch("controller.ssh_utils.scp_to"), \
+         patch("controller.ssh_utils.send_dir"), \
          patch("controller.ssh_utils.run_ssh") as run_ssh:
         controller.deploy_and_launch(inst, "model", 5, "traces", check_swebench)
     # last run_ssh call is the tmux launch; the command is the 3rd positional arg
@@ -74,7 +75,8 @@ def test_deploy_threads_check_swebench_enabled():
 def test_deploy_threads_family_env():
     inst = {"ssh_host": "h", "ssh_port": 22}
     with patch("controller.local_hf_token_path", return_value=None), \
-         patch("controller.ssh_utils.scp_to"), patch("controller.ssh_utils.run_ssh") as run_ssh:
+         patch("controller.ssh_utils.scp_to"), patch("controller.ssh_utils.send_dir"), \
+         patch("controller.ssh_utils.run_ssh") as run_ssh:
         controller.deploy_and_launch(inst, "m", 5, "traces", True, "gpt_oss")
     assert "STAGE2_FAMILY='gpt_oss'" in run_ssh.call_args_list[-1].args[2]
 
@@ -95,6 +97,7 @@ def test_main_provisions_interruptible():
     inst = {"ssh_host": "h", "ssh_port": 22}
     with patch("controller.local_hf_token_path", return_value="/tmp/tok"), \
          patch("controller.ssh_utils.scp_to") as scp, \
+         patch("controller.ssh_utils.send_dir"), \
          patch("controller.ssh_utils.run_ssh") as run_ssh:
         controller.deploy_and_launch(inst, "model", 5, "traces", True)
     token_dests = [c.args[3] for c in scp.call_args_list]

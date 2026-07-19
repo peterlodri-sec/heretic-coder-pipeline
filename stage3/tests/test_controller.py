@@ -70,12 +70,14 @@ def test_deploy_raises_still_stops():
 def test_deploy_and_launch_threads_check_swebench():
     inst = {"ssh_host": "h", "ssh_port": 22}
     with patch("controller.local_hf_token_path", return_value=None), \
-         patch("controller.ssh_utils.scp_to"), patch("controller.ssh_utils.run_ssh") as run_ssh:
+         patch("controller.ssh_utils.scp_to"), patch("controller.ssh_utils.send_dir"), \
+         patch("controller.ssh_utils.run_ssh") as run_ssh:
         controller.deploy_and_launch(inst, "m", 1, "traces", False)
     launched = " ".join(str(c) for c in run_ssh.call_args_list)
     assert "STAGE3_CHECK_SWEBENCH='0'" in launched
     with patch("controller.local_hf_token_path", return_value=None), \
-         patch("controller.ssh_utils.scp_to"), patch("controller.ssh_utils.run_ssh") as run_ssh:
+         patch("controller.ssh_utils.scp_to"), patch("controller.ssh_utils.send_dir"), \
+         patch("controller.ssh_utils.run_ssh") as run_ssh:
         controller.deploy_and_launch(inst, "m", 1, "traces", True)
     launched = " ".join(str(c) for c in run_ssh.call_args_list)
     assert "STAGE3_CHECK_SWEBENCH='1'" in launched
@@ -85,6 +87,7 @@ def test_deploy_ships_hf_token_and_enables_hf_transfer():
     inst = {"ssh_host": "h", "ssh_port": 22}
     with patch("controller.local_hf_token_path", return_value="/tmp/tok"), \
          patch("controller.ssh_utils.scp_to") as scp, \
+         patch("controller.ssh_utils.send_dir"), \
          patch("controller.ssh_utils.run_ssh") as run_ssh:
         controller.deploy_and_launch(inst, "m", 1, "traces", True)
     token_dests = [c.args[3] for c in scp.call_args_list]
@@ -96,7 +99,8 @@ def test_deploy_ships_hf_token_and_enables_hf_transfer():
 def test_deploy_threads_family_env():
     inst = {"ssh_host": "h", "ssh_port": 22}
     with patch("controller.local_hf_token_path", return_value=None), \
-         patch("controller.ssh_utils.scp_to"), patch("controller.ssh_utils.run_ssh") as run_ssh:
+         patch("controller.ssh_utils.scp_to"), patch("controller.ssh_utils.send_dir"), \
+         patch("controller.ssh_utils.run_ssh") as run_ssh:
         controller.deploy_and_launch(inst, "m", 1, "traces", True, "gpt_oss")
     launched = " ".join(str(c) for c in run_ssh.call_args_list)
     assert "STAGE3_FAMILY='gpt_oss'" in launched

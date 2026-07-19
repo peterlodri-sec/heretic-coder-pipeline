@@ -71,10 +71,12 @@ def test_deploy_ships_stage2_and_threads_rft_env():
     inst = {"ssh_host": "h", "ssh_port": 22}
     with patch("controller.ssh_utils.wait_for_ssh"), \
          patch("controller.local_hf_token_path", return_value=None), \
-         patch("controller.ssh_utils.scp_to") as scp, patch("controller.ssh_utils.run_ssh") as run_ssh:
+         patch("controller.ssh_utils.scp_to"), patch("controller.ssh_utils.send_dir") as send, \
+         patch("controller.ssh_utils.run_ssh") as run_ssh:
         controller.deploy_and_launch(inst, "m", 2, 4, False)
-    shipped = [c.args[2] for c in scp.call_args_list]
+    shipped = [c.args[2] for c in send.call_args_list]  # local_dir arg, tar-streamed
     assert controller.STAGE2_DIR in shipped  # RFT reuses stage2's sft_train
+    assert send.call_count >= 3  # shared + stage2 + stage4, tar-streamed not scp -r
     launched = " ".join(str(c) for c in run_ssh.call_args_list)
     assert "STAGE4_ROUNDS='2'" in launched
     assert "STAGE4_NUM_CANDIDATES='4'" in launched

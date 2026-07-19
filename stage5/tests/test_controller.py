@@ -76,7 +76,8 @@ def test_deploy_threads_num_gpus_and_launches_rlvr():
     inst = {"ssh_host": "h", "ssh_port": 22}
     with patch("controller.ssh_utils.wait_for_ssh"), \
          patch("controller.local_hf_token_path", return_value=None), \
-         patch("controller.ssh_utils.scp_to"), patch("controller.ssh_utils.run_ssh") as run_ssh:
+         patch("controller.ssh_utils.scp_to"), patch("controller.ssh_utils.send_dir"), \
+         patch("controller.ssh_utils.run_ssh") as run_ssh:
         controller.deploy_and_launch(inst, "m", 4, True, "distill", "gpt_oss")
     launched = " ".join(str(c) for c in run_ssh.call_args_list)
     assert "STAGE5_NUM_GPUS='4'" in launched
@@ -100,7 +101,8 @@ def test_deploy_threads_live_rl_mode():
     inst = {"ssh_host": "h", "ssh_port": 22}
     with patch("controller.ssh_utils.wait_for_ssh"), \
          patch("controller.local_hf_token_path", return_value=None), \
-         patch("controller.ssh_utils.scp_to"), patch("controller.ssh_utils.run_ssh") as run_ssh:
+         patch("controller.ssh_utils.scp_to"), patch("controller.ssh_utils.send_dir"), \
+         patch("controller.ssh_utils.run_ssh") as run_ssh:
         controller.deploy_and_launch(inst, "m", 4, True, "live-rl", "gpt_oss")
     assert "STAGE5_MODE='live-rl'" in " ".join(str(c) for c in run_ssh.call_args_list)
 
