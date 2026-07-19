@@ -37,11 +37,48 @@ def train(model_source: str, data_path: str, out_dir: str,
         (mean_reward_or_loss, model, tokenizer) — the live PEFT model + tokenizer
         so run_stage5 can merge/export (mirrors sft_train/orpo_train).
     """
-    # When implemented, heavy imports stay function-local (GPU-free module import):
-    #   from unsloth import FastLanguageModel
-    #   from trl import GRPOConfig, GRPOTrainer   # GRPOConfig(importance_sampling_level="sequence")
-    #   from datasets import load_dataset
-    raise NotImplementedError(
-        "finalize GRPO/GSPO trainer from SOTA research — GSPO "
-        "(importance_sampling_level='sequence') is REQUIRED for MoE gpt-oss; "
-        "see 2026-07-19 plan")
+    from unsloth import FastLanguageModel, PatchFastRL
+    from trl import GRPOConfig, GRPOTrainer
+    from datasets import load_dataset
+    from reward import code_execution_reward
+
+    # Unsloth's RL patch — the GRPO analog of ORPO's PatchDPOTrainer; must run
+    # before the model/trainer are built or the rollout+grad path mispatches.
+    PatchFastRL("GRPO", FastLanguageModel)
+
+    # gpt-oss QLoRA (NF4-mimic of MXFP4). r=32/a64 for parity with the SFT
+    # anti-regression fix (RL is less forgetting-prone; raise if capacity-bound).
+    model, tokenizer = FastLanguageModel.from_pretrained(
+        model_name=model_source, max_seq_length=MAX_SEQ_LEN,
+        load_in_4bit=True, dtype=None, full_finetuning=False,
+    )
+    model = FastLanguageModel.get_peft_model(
+        model, r=32, lora_alpha=64, lora_dropout=0.0,
+        target_modules=LORA_TARGETS,
+        use_gradient_checkpointing="unsloth", random_state=42,
+    )
+
+    # Dataset columns: `prompt` (+ `tests`/`oracle_patch` forwarded to the reward
+    # via **kwargs by GRPOTrainer). No pre-templating — GRPO templates prompts.
+    dataset = load_dataset("json", data_files=data_path, split="train")
+
+    trainer = GRPOTrainer(
+        model=model, processing_class=tokenizer, train_dataset=dataset,
+        reward_funcs=[code_execution_reward],
+        args=GRPOConfig(
+            # GSPO — REQUIRED for MoE gpt-oss (sequence-level importance ratio;
+            # token-level GRPO collapses MoE routers). arXiv 2507.18071.
+            importance_sampling_level="sequence", loss_type="grpo",
+            beta=0.0, epsilon=3e-4, epsilon_high=4e-4,
+            num_generations=8, max_completion_length=MAX_SEQ_LEN,
+            # Colocated vLLM rollouts across num_gpus (2-4x H200). KV-cache kit
+            # (prefix caching / fp8 kv / offload) = vLLM engine args — verify the
+            # exact GRPOConfig passthrough on the pinned trl before the run.
+            use_vllm=True, vllm_mode="colocate",
+            gradient_accumulation_steps=1, steps_per_generation=4,
+            learning_rate=1e-6, bf16=True, optim="adamw_8bit",
+            num_train_epochs=num_epochs, logging_steps=10, output_dir=out_dir,
+        ),
+    )
+    stats = trainer.train()
+    return float(stats.training_loss), model, tokenizer

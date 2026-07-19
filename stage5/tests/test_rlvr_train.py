@@ -1,12 +1,84 @@
-import pytest
+import importlib
+import sys
+import types
+from unittest.mock import MagicMock, patch
+
 import rlvr_train
 
 
-def test_train_is_stubbed_interface():
-    # GRPO/GSPO trainer finalized from research; module imports GPU-free, calling
-    # train() raises until the trainer is wired.
-    with pytest.raises(NotImplementedError):
-        rlvr_train.train("model", "data.jsonl", "out", num_gpus=2)
+def _fakes():
+    unsloth = types.ModuleType("unsloth")
+    unsloth.FastLanguageModel = MagicMock()
+    unsloth.FastLanguageModel.from_pretrained.return_value = ("model", "tok")
+    unsloth.FastLanguageModel.get_peft_model.return_value = "peft_model"
+    unsloth.PatchFastRL = MagicMock()
+    trl = types.ModuleType("trl")
+    trl.GRPOTrainer = MagicMock()
+    trl.GRPOConfig = MagicMock()
+    datasets = types.ModuleType("datasets")
+    datasets.load_dataset = MagicMock(return_value="ds")
+    return {"unsloth": unsloth, "trl": trl, "datasets": datasets}
+
+
+def _run_train():
+    fakes = _fakes()
+    fakes["trl"].GRPOTrainer.return_value.train.return_value = types.SimpleNamespace(
+        training_loss=0.5)
+    with patch.dict(sys.modules, fakes):
+        importlib.reload(rlvr_train)
+        result = rlvr_train.train("src", "data.jsonl", "out", num_gpus=2)
+    return fakes, result
+
+
+def test_train_returns_loss_and_model_tokenizer():
+    fakes, result = _run_train()
+    loss, model, tok = result
+    assert loss == 0.5 and model == "peft_model" and tok == "tok"
+    fakes["trl"].GRPOTrainer.assert_called_once()
+
+
+def test_gspo_is_enabled_for_moe():
+    # sequence-level importance sampling + zero-KL = GSPO (MoE-stable). REQUIRED.
+    fakes, _ = _run_train()
+    cfg = fakes["trl"].GRPOConfig.call_args.kwargs
+    assert cfg["importance_sampling_level"] == "sequence"
+    assert cfg["beta"] == 0.0
+
+
+def test_uses_colocated_vllm_rollouts():
+    fakes, _ = _run_train()
+    cfg = fakes["trl"].GRPOConfig.call_args.kwargs
+    assert cfg["use_vllm"] is True
+    assert cfg["vllm_mode"] == "colocate"
+    assert cfg["num_generations"] >= 2
+
+
+def test_patch_fast_rl_called_before_trainer():
+    # GRPO analog of ORPO's PatchDPOTrainer trap.
+    fakes, _ = _run_train()
+    fakes["unsloth"].PatchFastRL.assert_called_once()
+    args = fakes["unsloth"].PatchFastRL.call_args.args
+    assert args[0] == "GRPO"
+
+
+def test_loads_gpt_oss_in_4bit():
+    fakes, _ = _run_train()
+    kw = fakes["unsloth"].FastLanguageModel.from_pretrained.call_args.kwargs
+    assert kw["load_in_4bit"] is True
+    assert kw["full_finetuning"] is False
+
+
+def test_reward_func_is_code_execution_reward():
+    from reward import code_execution_reward
+    fakes, _ = _run_train()
+    trainer_kw = fakes["trl"].GRPOTrainer.call_args.kwargs
+    assert trainer_kw["reward_funcs"] == [code_execution_reward]
+
+
+def test_lora_rank_matches_anti_regression_fix():
+    fakes, _ = _run_train()
+    peft_kw = fakes["unsloth"].FastLanguageModel.get_peft_model.call_args.kwargs
+    assert peft_kw["r"] == 32 and peft_kw["lora_alpha"] == 64
 
 
 def test_constants_mirror_sft_orpo():
