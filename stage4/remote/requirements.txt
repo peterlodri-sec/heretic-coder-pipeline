@@ -13,6 +13,7 @@ bitsandbytes==0.49.2
 lm_eval==0.4.12
 hf-transfer==0.1.9
 swebench==4.1.0
+# optional (KOMPRESS_COMPRESS=1): headroom[ml]  # kompress-v8 tool-output compression
 # TODO(research): pin the candidate-generation + exec-sandbox deps for the RFT
 # loop — vLLM (batched candidate sampling) and the hardened sandbox lib
 # (Docker/nsjail/Firejail or verifiers). Versions finalized from SOTA research —

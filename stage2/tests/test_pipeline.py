@@ -80,3 +80,40 @@ def test_build_renders_structured_for_gpt_oss(tmp_path):
     build([FakeSource("xlam", [_tool_ex()])], str(out))
     msgs = json.loads(out.read_text().splitlines()[0])["messages"]
     assert msgs[1]["tool_calls"] == [{"name": "get_weather", "arguments": {"city": "NYC"}}]
+
+
+def _tool_output_ex():
+    return TrainingExample(source="agent", messages=[
+        {"role": "user", "content": "run ls"},
+        {"role": "tool", "content": "file1\nfile2\n"},
+    ])
+
+
+def test_build_kompress_unset_leaves_messages_uncompressed(tmp_path, monkeypatch):
+    monkeypatch.delenv("KOMPRESS_COMPRESS", raising=False)
+    out = tmp_path / "train.jsonl"
+    build([FakeSource("agent", [_tool_output_ex()])], str(out), family="qwen")
+    msgs = json.loads(out.read_text().splitlines()[0])["messages"]
+    assert msgs[1]["content"] == "file1\nfile2\n"  # untouched
+
+
+def test_build_kompress_enabled_applies_compress_tool_spans(tmp_path, monkeypatch):
+    calls = []
+
+    def fake_compress(messages, **kwargs):
+        calls.append(messages)
+        return [dict(m, content="C:" + m["content"]) if m.get("role") == "tool" else m
+                for m in messages]
+
+    monkeypatch.setenv("KOMPRESS_COMPRESS", "1")
+    # patch the name bound in pipeline's namespace (no real headroom needed)
+    import dataprep.pipeline as pipeline_mod
+    monkeypatch.setattr(pipeline_mod, "compress_tool_spans", fake_compress)
+
+    out = tmp_path / "train.jsonl"
+    build([FakeSource("agent", [_tool_output_ex(), _tool_output_ex()])],
+          str(out), family="qwen")
+    # applied to each example
+    assert len(calls) == 2
+    msgs = json.loads(out.read_text().splitlines()[0])["messages"]
+    assert msgs[1]["content"] == "C:file1\nfile2\n"
