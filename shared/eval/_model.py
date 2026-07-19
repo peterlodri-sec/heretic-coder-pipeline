@@ -34,13 +34,19 @@ def chat_generate(
     max_new_tokens=256,
     batch_size=16,
     tools_per_item=None,
+    reasoning_effort=None,
 ):
     """Batched chat generation returning COMPLETIONS ONLY.
 
     ``message_lists`` is a list of OpenAI-style message lists. For each item the
     chat template is applied with ``add_generation_prompt=True`` (and the
-    matching ``tools`` entry from ``tools_per_item`` when provided). Only the
-    newly-generated tokens are decoded, so callers never see the echoed prompt.
+    matching ``tools`` entry from ``tools_per_item`` when provided; the gpt-oss
+    harmony template consumes ``tools`` natively). Only the newly-generated
+    tokens are decoded, so callers never see the echoed prompt.
+
+    ``reasoning_effort`` (harmony determinism knob, e.g. "low") is forwarded to
+    the chat template ONLY when set — a Qwen/ChatML template just ignores the
+    unused kwarg, so this stays family-agnostic and never hardcoded.
     """
     import torch
 
@@ -48,6 +54,9 @@ def chat_generate(
         return []
     if tools_per_item is not None and len(tools_per_item) != len(message_lists):
         raise ValueError("tools_per_item must match message_lists length")
+    template_kwargs = {}
+    if reasoning_effort is not None:
+        template_kwargs["reasoning_effort"] = reasoning_effort
 
     # Left-pad so the freshly generated tokens are contiguous at the tail of
     # every row and can be sliced off with a single prompt-length offset.
@@ -68,6 +77,7 @@ def chat_generate(
                         add_generation_prompt=True,
                         tokenize=False,
                         tools=tools,
+                        **template_kwargs,
                     )
                 )
             inputs = tokenizer(

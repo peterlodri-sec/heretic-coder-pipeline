@@ -37,6 +37,29 @@ def test_refusal_rate_empty_prompts():
     load.assert_not_called()
 
 
+def test_refusal_scores_final_channel_only_for_gpt_oss():
+    from shared.eval import refusal as eval_refusal
+    # analysis channel says "I cannot"; final channel complies. gpt-oss must
+    # score the FINAL channel only -> NOT a refusal.
+    completions = ["<|channel|>analysis<|message|>I cannot do this"
+                   "<|channel|>final<|message|>Sure, here you go<|return|>"]
+    with patch("shared.eval.refusal.load_model", return_value=("m", "t")), \
+         patch("shared.eval.refusal.chat_generate", return_value=completions):
+        rate = eval_refusal.refusal_rate("model", ["p1"], family="gpt_oss")
+    assert rate == 0.0
+
+
+def test_refusal_qwen_uses_raw_text():
+    from shared.eval import refusal as eval_refusal
+    # Same text under qwen is NOT harmony-stripped -> "i cannot" is seen -> refusal.
+    completions = ["<|channel|>analysis<|message|>I cannot do this"
+                   "<|channel|>final<|message|>Sure, here you go<|return|>"]
+    with patch("shared.eval.refusal.load_model", return_value=("m", "t")), \
+         patch("shared.eval.refusal.chat_generate", return_value=completions):
+        rate = eval_refusal.refusal_rate("model", ["p1"], family="qwen")
+    assert rate == 1.0
+
+
 # ---- bfcl -----------------------------------------------------------------
 
 def test_bfcl_passes_tools_and_normalizes_comparison():
@@ -55,7 +78,7 @@ def test_bfcl_passes_tools_and_normalizes_comparison():
     ]
     with patch("shared.eval.bfcl.load_model", return_value=("m", "t")) as load, \
          patch("shared.eval.bfcl.chat_generate", return_value=completions) as gen:
-        acc = eval_bfcl.accuracy("model", cases)
+        acc = eval_bfcl.accuracy("model", cases, family="qwen")
 
     assert acc == 0.5
     load.assert_called_once()
@@ -67,8 +90,34 @@ def test_bfcl_passes_tools_and_normalizes_comparison():
 
 def test_bfcl_extract_tool_call_handles_json_string_args():
     from shared.eval import bfcl as eval_bfcl
-    call = eval_bfcl.extract_tool_call('<tool_call>{"name": "f", "arguments": "{\\"x\\": 1}"}</tool_call>')
+    call = eval_bfcl.extract_tool_call(
+        '<tool_call>{"name": "f", "arguments": "{\\"x\\": 1}"}</tool_call>', family="qwen")
     assert call["name"] == "f"
+
+
+def test_bfcl_extract_tool_call_parses_harmony_gpt_oss():
+    from shared.eval import bfcl as eval_bfcl
+    text = ('<|channel|>commentary to=functions.get_weather '
+            '<|constrain|>json<|message|>{"city": "NYC"}<|call|>')
+    call = eval_bfcl.extract_tool_call(text)  # default gpt_oss
+    assert call == {"name": "get_weather", "arguments": {"city": "NYC"}}
+
+
+def test_bfcl_harmony_default_does_not_parse_hermes():
+    # A Hermes block under the gpt_oss default has no harmony markers -> None.
+    from shared.eval import bfcl as eval_bfcl
+    assert eval_bfcl.extract_tool_call('<tool_call>{"name": "f", "arguments": {}}</tool_call>') is None
+
+
+def test_bfcl_accuracy_scores_harmony_completions_gpt_oss():
+    from shared.eval import bfcl as eval_bfcl
+    completions = ['<|channel|>commentary to=functions.bash '
+                   '<|constrain|>json<|message|>{"cmd": "ls"}<|call|>']
+    cases = [{"prompt": "p", "tools": [{"name": "bash"}],
+              "expected": {"name": "bash", "arguments": {"cmd": "ls"}}}]
+    with patch("shared.eval.bfcl.load_model", return_value=("m", "t")), \
+         patch("shared.eval.bfcl.chat_generate", return_value=completions):
+        assert eval_bfcl.accuracy("model", cases) == 1.0
 
 
 def test_bfcl_empty_cases():
@@ -96,6 +145,32 @@ def test_humaneval_pick_pass_at_1_handles_suffixed_key():
 def test_humaneval_pick_pass_at_1_plain_key():
     from shared.eval import humaneval as eval_humaneval
     assert eval_humaneval._pick_pass_at_1({"pass@1": 0.5}) == 0.5
+
+
+def test_humaneval_final_answer_strips_analysis_for_gpt_oss():
+    from shared.eval import humaneval as eval_humaneval
+    text = ("<|channel|>analysis<|message|>let me think about edge cases"
+            "<|channel|>final<|message|>def f():\n    return 1<|return|>")
+    # gpt-oss: code extractor must see ONLY the final channel, not the CoT.
+    assert eval_humaneval._final_answer(text, "gpt_oss") == "def f():\n    return 1"
+
+
+def test_humaneval_final_answer_passthrough_for_qwen():
+    from shared.eval import humaneval as eval_humaneval
+    text = "def f():\n    return 1"
+    assert eval_humaneval._final_answer(text, "qwen") == text
+
+
+def test_humaneval_regression_threads_family():
+    from shared.eval import humaneval as eval_humaneval
+    seen = []
+
+    def fake(model, family="gpt_oss"):
+        seen.append(family)
+        return 0.5
+    with patch.object(eval_humaneval, "_pass_at_1", side_effect=fake):
+        eval_humaneval.regression("base", "cand", family="qwen")
+    assert seen == ["qwen", "qwen"]
 
 
 # ---- swebench -------------------------------------------------------------

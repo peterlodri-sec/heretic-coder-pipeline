@@ -9,13 +9,15 @@ import sys
 def main(argv=None):
     argv = sys.argv[1:] if argv is None else argv
     merged, base, check = argv[0], argv[1], argv[2] == "1"
+    # Model family drives harmony-aware parsing (argv[3] > EVAL_FAMILY > gpt_oss).
+    family = argv[3] if len(argv) > 3 else os.environ.get("EVAL_FAMILY", "gpt_oss")
     os.environ.setdefault("HF_ALLOW_CODE_EVAL", "1")
     from shared.eval import bfcl, humaneval, refusal, swebench
     from shared.eval import datasets as evd
     metrics = {
-        "refusal_rate": refusal.refusal_rate(merged, evd.load_refusal_prompts()),
-        "bfcl_accuracy": bfcl.accuracy(merged, evd.load_bfcl_cases()),
-        "humaneval_delta": humaneval.regression(base, merged),
+        "refusal_rate": refusal.refusal_rate(merged, evd.load_refusal_prompts(), family=family),
+        "bfcl_accuracy": bfcl.accuracy(merged, evd.load_bfcl_cases(), family=family),
+        "humaneval_delta": humaneval.regression(base, merged, family=family),
         "swebench_resolve": (swebench.resolve_rate(merged, model_name="candidate", limit=100)
                              if check else 1.0),
     }

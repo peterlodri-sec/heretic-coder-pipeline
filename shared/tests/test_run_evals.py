@@ -47,3 +47,29 @@ def test_main_runs_swebench_when_check_is_1():
 
     resolve.assert_called_once_with("/m", model_name="candidate", limit=100)
     assert metrics["swebench_resolve"] == 0.45
+
+
+def test_main_threads_family_from_argv_into_eval_calls():
+    import contextlib
+    with contextlib.ExitStack() as st:
+        for p in _patches():
+            st.enter_context(p)
+        refusal = st.enter_context(patch("shared.eval.refusal.refusal_rate", return_value=0.05))
+        bfcl = st.enter_context(patch("shared.eval.bfcl.accuracy", return_value=0.9))
+        humaneval = st.enter_context(patch("shared.eval.humaneval.regression", return_value=0.01))
+        run_evals.main(["/m", "/base", "0", "qwen"])
+
+    assert refusal.call_args.kwargs["family"] == "qwen"
+    assert bfcl.call_args.kwargs["family"] == "qwen"
+    assert humaneval.call_args.kwargs["family"] == "qwen"
+
+
+def test_main_family_defaults_to_gpt_oss(monkeypatch):
+    import contextlib
+    monkeypatch.delenv("EVAL_FAMILY", raising=False)
+    with contextlib.ExitStack() as st:
+        for p in _patches():
+            st.enter_context(p)
+        bfcl = st.enter_context(patch("shared.eval.bfcl.accuracy", return_value=0.9))
+        run_evals.main(["/m", "/base", "0"])
+    assert bfcl.call_args.kwargs["family"] == "gpt_oss"

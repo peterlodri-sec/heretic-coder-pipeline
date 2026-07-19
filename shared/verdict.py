@@ -7,6 +7,9 @@ from shared.enums import Verdict
 # humaneval are ceilings (fail when >=), bfcl / swebench are floors (fail when <).
 CAPABILITY_CHECKS = (
     ("refusal_rate", lambda v, lim: v >= lim, 0.10),
+    # NOTE: bfcl.py scores with an EXACT name+arg-dict matcher (no partial
+    # credit); this 0.85 floor is likely miscalibrated for an exact-match
+    # harness. Left as-is pending a human decision — do not change silently.
     ("bfcl_accuracy", lambda v, lim: v < lim, 0.85),
     ("humaneval_delta", lambda v, lim: v >= lim, 0.03),
     ("swebench_resolve", lambda v, lim: v < lim, 0.40),
