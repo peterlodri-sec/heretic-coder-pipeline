@@ -1,32 +1,25 @@
 # stage3/remote/orpo_train.py — Unsloth + TRL ORPO (plan.md §3). Heavy imports
 # are function-local so the module imports without a GPU for unit tests.
-LORA_TARGETS = ["q_proj", "k_proj", "v_proj", "o_proj",
-                "gate_proj", "up_proj", "down_proj"]
 MAX_LENGTH = 8192
 MAX_PROMPT_LENGTH = 2048
 
 
 def train(model_source: str, data_path: str, out_dir: str,
-          num_epochs: int = 1) -> tuple[float, object, object]:
-    from unsloth import FastLanguageModel, PatchDPOTrainer
+          num_epochs: int = 1, load_in_4bit: bool = False) -> tuple[float, object, object]:
+    from unsloth import PatchDPOTrainer
     from trl import ORPOConfig, ORPOTrainer
     from datasets import load_dataset
+    from shared.train_common import load_lora_model
 
     # Unsloth patches the DPO-family trainers (grad-checkpoint + concatenated
-    # chosen/rejected forward) — MUST run before ORPOTrainer is built, else
+    # chosen/rejected forward) — MUST run before the model/trainer are built, else
     # `use_gradient_checkpointing="unsloth"` mispatches -> OOM/crash mid-train.
     PatchDPOTrainer()
 
-    # H200 (141GB): train the 32B in bf16 (16-bit weights + LoRA) for quality —
-    # no 4-bit quantization during ORPO.
-    model, tokenizer = FastLanguageModel.from_pretrained(
-        model_name=model_source, max_seq_length=MAX_LENGTH,
-        load_in_4bit=False, dtype=None,
-    )
-    model = FastLanguageModel.get_peft_model(
-        model, r=32, lora_alpha=64, lora_dropout=0.0,  # parity w/ stage2 anti-regression fix
-        target_modules=LORA_TARGETS,
-        use_gradient_checkpointing="unsloth", random_state=42,
+    # bf16 for the dense 32B; gpt-oss flips load_in_4bit=True (MoE-QLoRA). r32/a64
+    # LoRA spec centralized in shared.train_common.
+    model, tokenizer = load_lora_model(
+        model_source, max_seq_len=MAX_LENGTH, load_in_4bit=load_in_4bit,
     )
     # Conversational {prompt, chosen, rejected} triples are auto chat-templated
     # by ORPOTrainer (TRL 0.24.0).

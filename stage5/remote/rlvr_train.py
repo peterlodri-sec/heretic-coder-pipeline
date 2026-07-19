@@ -1,9 +1,6 @@
-# stage5/remote/rlvr_train.py — RLVR (execution-feedback RL) trainer. INTERFACE
-# ONLY; the trainer is finalized from SOTA research (build-order step 3, see
-# 2026-07-19 plan). Heavy imports (unsloth/trl/vllm) are function-local so this
-# module imports without a GPU for unit tests. Constants mirror sft/orpo.
-LORA_TARGETS = ["q_proj", "k_proj", "v_proj", "o_proj",
-                "gate_proj", "up_proj", "down_proj"]
+# stage5/remote/rlvr_train.py — RLVR (execution-feedback RL) trainer, GSPO for the
+# MoE base. Heavy imports (unsloth/trl/vllm) are function-local so this module
+# imports without a GPU for unit tests. LoRA spec lives in shared.train_common.
 MAX_SEQ_LEN = 8192
 
 
@@ -41,21 +38,17 @@ def train(model_source: str, data_path: str, out_dir: str,
     from trl import GRPOConfig, GRPOTrainer
     from datasets import load_dataset
     from reward import code_execution_reward
+    from shared.train_common import load_lora_model
 
     # Unsloth's RL patch — the GRPO analog of ORPO's PatchDPOTrainer; must run
     # before the model/trainer are built or the rollout+grad path mispatches.
     PatchFastRL("GRPO", FastLanguageModel)
 
-    # gpt-oss QLoRA (NF4-mimic of MXFP4). r=32/a64 for parity with the SFT
-    # anti-regression fix (RL is less forgetting-prone; raise if capacity-bound).
-    model, tokenizer = FastLanguageModel.from_pretrained(
-        model_name=model_source, max_seq_length=MAX_SEQ_LEN,
-        load_in_4bit=True, dtype=None, full_finetuning=False,
-    )
-    model = FastLanguageModel.get_peft_model(
-        model, r=32, lora_alpha=64, lora_dropout=0.0,
-        target_modules=LORA_TARGETS,
-        use_gradient_checkpointing="unsloth", random_state=42,
+    # gpt-oss MoE-QLoRA (load_in_4bit). r32/a64 LoRA spec centralized in
+    # shared.train_common (RL is less forgetting-prone; raise r if capacity-bound).
+    model, tokenizer = load_lora_model(
+        model_source, max_seq_len=MAX_SEQ_LEN, load_in_4bit=True,
+        full_finetuning=False,
     )
 
     # Dataset columns: `prompt` (+ `tests`/`oracle_patch` forwarded to the reward

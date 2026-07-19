@@ -1,28 +1,19 @@
 # stage2/remote/sft_train.py — Unsloth + TRL SFT (plan.md §2). Heavy imports are
 # function-local so the module imports without a GPU for unit tests.
-LORA_TARGETS = ["q_proj", "k_proj", "v_proj", "o_proj",
-                "gate_proj", "up_proj", "down_proj"]
 MAX_SEQ_LEN = 16384
 
 
 def train(model_source: str, data_path: str, out_dir: str,
-          max_steps: int = -1, num_epochs: int = 3) -> tuple[float, object, object]:
-    from unsloth import FastLanguageModel
+          max_steps: int = -1, num_epochs: int = 3,
+          load_in_4bit: bool = False) -> tuple[float, object, object]:
     from trl import SFTConfig, SFTTrainer
     from datasets import load_dataset
+    from shared.train_common import load_lora_model
 
-    # H200 (141GB): train the 32B in bf16 (16-bit weights + LoRA fit) for
-    # quality — no 4-bit quantization during SFT.
-    model, tokenizer = FastLanguageModel.from_pretrained(
-        model_name=model_source, max_seq_length=MAX_SEQ_LEN,
-        load_in_4bit=False, dtype=None,
-    )
-    # Gentler LoRA (r=32/alpha=64) to avoid over-writing the base model's coding
-    # ability — the r=64/lr=2e-4 recipe caused a ~19.5% HumanEval regression.
-    model = FastLanguageModel.get_peft_model(
-        model, r=32, lora_alpha=64, lora_dropout=0.0,
-        target_modules=LORA_TARGETS,
-        use_gradient_checkpointing="unsloth", random_state=42,
+    # bf16 for the dense 32B (load_in_4bit=False); gpt-oss flips it True (MoE-QLoRA).
+    # LoRA spec (r32/a64, MoE-safe targets) is centralized in shared.train_common.
+    model, tokenizer = load_lora_model(
+        model_source, max_seq_len=MAX_SEQ_LEN, load_in_4bit=load_in_4bit,
     )
     # Unsloth's patched SFTTrainer does NOT auto chat-template a `messages`
     # column (it raises "You must specify a formatting_func"). Render each

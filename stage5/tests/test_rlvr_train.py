@@ -81,6 +81,5 @@ def test_lora_rank_matches_anti_regression_fix():
     assert peft_kw["r"] == 32 and peft_kw["lora_alpha"] == 64
 
 
-def test_constants_mirror_sft_orpo():
-    assert "q_proj" in rlvr_train.LORA_TARGETS and "down_proj" in rlvr_train.LORA_TARGETS
+def test_max_seq_len_constant():
     assert rlvr_train.MAX_SEQ_LEN > 0
