@@ -18,14 +18,15 @@ def _fakes():
     return {"unsloth": unsloth, "trl": trl, "datasets": datasets}
 
 
-def _run_train():
+def _run_train(**train_kwargs):
     fakes = _fakes()
     fakes["trl"].ORPOTrainer.return_value.train.return_value = types.SimpleNamespace(
         training_loss=0.21)
     with patch.dict(sys.modules, fakes):
         orpo_train = importlib.import_module("orpo_train")
         importlib.reload(orpo_train)
-        result = orpo_train.train("src", "pairs.jsonl", "out", num_epochs=1)
+        result = orpo_train.train("src", "pairs.jsonl", "out", num_epochs=1,
+                                  **train_kwargs)
     return fakes, result
 
 
@@ -38,11 +39,18 @@ def test_train_returns_loss_and_model_tokenizer():
     fakes["unsloth"].FastLanguageModel.from_pretrained.assert_called_once()
 
 
-def test_from_pretrained_trains_in_16bit():
+def test_gpt_oss_orpo_defaults_to_4bit():
+    # gpt-oss ORPO MUST be 4-bit (MoE-QLoRA); default family is gpt_oss.
     fakes, _ = _run_train()
     kwargs = fakes["unsloth"].FastLanguageModel.from_pretrained.call_args.kwargs
-    assert kwargs["load_in_4bit"] is False
+    assert kwargs["load_in_4bit"] is True
     assert kwargs["model_name"] == "src"
+
+
+def test_qwen_family_trains_in_16bit():
+    fakes, _ = _run_train(family="qwen")
+    kwargs = fakes["unsloth"].FastLanguageModel.from_pretrained.call_args.kwargs
+    assert kwargs["load_in_4bit"] is False
 
 
 def test_orpotrainer_uses_processing_class_not_tokenizer():

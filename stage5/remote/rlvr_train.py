@@ -5,7 +5,8 @@ MAX_SEQ_LEN = 8192
 
 
 def train(model_source: str, data_path: str, out_dir: str,
-          num_gpus: int = 2, num_epochs: int = 1) -> tuple[float, object, object]:
+          num_gpus: int = 2, num_epochs: int = 1,
+          family: str = "gpt_oss") -> tuple[float, object, object]:
     """Train the terminal RLVR policy with verifiable code-execution rewards.
 
     ===== TRAINER (finalize from research) =====
@@ -38,17 +39,20 @@ def train(model_source: str, data_path: str, out_dir: str,
     from trl import GRPOConfig, GRPOTrainer
     from datasets import load_dataset
     from reward import code_execution_reward
+    from shared.model_family import default_load_in_4bit, full_finetuning
     from shared.train_common import load_lora_model
 
     # Unsloth's RL patch — the GRPO analog of ORPO's PatchDPOTrainer; must run
     # before the model/trainer are built or the rollout+grad path mispatches.
     PatchFastRL("GRPO", FastLanguageModel)
 
-    # gpt-oss MoE-QLoRA (load_in_4bit). r32/a64 LoRA spec centralized in
-    # shared.train_common (RL is less forgetting-prone; raise r if capacity-bound).
+    # Terminal gpt-oss stage: family resolves to 4-bit MoE-QLoRA (NF4). r32/a64
+    # LoRA spec centralized in shared.train_common (RL is less forgetting-prone;
+    # raise r if capacity-bound).
     model, tokenizer = load_lora_model(
-        model_source, max_seq_len=MAX_SEQ_LEN, load_in_4bit=True,
-        full_finetuning=False,
+        model_source, max_seq_len=MAX_SEQ_LEN,
+        load_in_4bit=default_load_in_4bit(family),
+        full_finetuning=full_finetuning(family),
     )
 
     # Dataset columns: `prompt` (+ `tests`/`oracle_patch` forwarded to the reward

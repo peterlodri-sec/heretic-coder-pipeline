@@ -8,7 +8,8 @@ from enums import Stage
 from shared.enums import Verdict
 from status_io import Status
 
-_ARGS = argparse.Namespace(model="src", rounds=2, num_candidates=4, check_swebench=True)
+_ARGS = argparse.Namespace(model="src", rounds=2, num_candidates=4, check_swebench=True,
+                           family="gpt_oss", interruptible=True)
 
 
 def _done(v):
@@ -78,4 +79,27 @@ def test_deploy_ships_stage2_and_threads_rft_env():
     assert "STAGE4_ROUNDS='2'" in launched
     assert "STAGE4_NUM_CANDIDATES='4'" in launched
     assert "STAGE4_CHECK_SWEBENCH='0'" in launched
+    assert "STAGE4_FAMILY='gpt_oss'" in launched
     assert "tmux new-session -d -s rft" in launched
+
+
+def test_rounds_default_is_two():
+    import argparse as _ap
+    p = _ap.ArgumentParser()
+    p.add_argument("--rounds", type=int, default=2)
+    assert p.parse_args([]).rounds == 2  # RFT diminishing-returns sweet spot
+
+
+def test_main_provisions_interruptible():
+    vast = MagicMock()
+    inst = {"id": 7, "ssh_host": "h", "ssh_port": 22}
+    with patch("controller.parse_args", return_value=_ARGS), \
+         patch("controller.load_api_key", return_value="key"), \
+         patch("controller.VastAI", return_value=vast), \
+         patch("controller.provision_lock", lambda: contextlib.nullcontext()), \
+         patch("controller.vast_provision.provision", return_value=inst) as prov, \
+         patch("controller.deploy_and_launch", return_value=("root@h", 22)), \
+         patch("controller.ssh_utils.scp_from"), \
+         patch("controller.poll_until_done", return_value=_done(Verdict.PASS)):
+        controller.main()
+    assert prov.call_args.kwargs["interruptible"] is True

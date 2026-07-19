@@ -37,7 +37,8 @@ def provision_query(num_gpus: int) -> str:
     return f"gpu_name=H200 num_gpus={num_gpus} disk_space>={PROVISION_DISK_GB} rentable=true"
 
 
-def deploy_and_launch(instance: dict, model: str, num_gpus: int, check_swebench: bool):
+def deploy_and_launch(instance: dict, model: str, num_gpus: int, check_swebench: bool,
+                      mode: str = "distill", family: str = "gpt_oss"):
     host = f"{SSH_USER}@{instance['ssh_host']}"
     port = instance["ssh_port"]
 
@@ -53,7 +54,8 @@ def deploy_and_launch(instance: dict, model: str, num_gpus: int, check_swebench:
     ssh_utils.run_ssh(
         host, port,
         f"cd {REMOTE_ROOT}/remote && HF_HUB_ENABLE_HF_TRANSFER=1 "
-        f"STAGE5_MODEL='{model}' STAGE5_NUM_GPUS='{num_gpus}' "
+        f"STAGE5_MODEL='{model}' STAGE5_FAMILY='{family}' STAGE5_MODE='{mode}' "
+        f"STAGE5_NUM_GPUS='{num_gpus}' "
         f"STAGE5_CHECK_SWEBENCH='{int(check_swebench)}' "
         "tmux new-session -d -s rlvr 'python3 run_stage5.py'"
     )
@@ -62,9 +64,19 @@ def deploy_and_launch(instance: dict, model: str, num_gpus: int, check_swebench:
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--model", default="PeetPedro/qwen2.5-coder-32b-instruct-heretic-rft")
+    parser.add_argument("--model", default="PeetPedro/gpt-oss-120b-heretic-rft")
+    parser.add_argument("--family", default="gpt_oss")
     parser.add_argument("--num-gpus", dest="num_gpus", type=int, default=DEFAULT_NUM_GPUS)
     parser.add_argument("--no-swebench", dest="check_swebench", action="store_false")
+    # RLVR mode (plan Gemini §1). distill (default): RFT-on-120B -> SFT, cheapest
+    # good option, sidesteps the KV-cache wall. offline-kto / live-rl deferred.
+    parser.add_argument("--mode", choices=["live-rl", "distill", "offline-kto"],
+                        default="distill")
+    # Cost lever: RLVR is MULTI-GPU + long-horizon; a coordinated preempt is
+    # costlier to resume, so interruptible defaults OFF here (opt in with
+    # --interruptible / INTERRUPTIBLE=1).
+    parser.add_argument("--interruptible", action="store_true",
+                        default=os.environ.get("INTERRUPTIBLE") == "1")
     return parser.parse_args()
 
 
@@ -78,8 +90,9 @@ def main() -> int:
         with provision_lock():
             instance = vast_provision.provision(
                 vast, label=PROVISION_LABEL, query=provision_query(args.num_gpus),
-                disk_gb=PROVISION_DISK_GB)
-        host, port = deploy_and_launch(instance, args.model, args.num_gpus, args.check_swebench)
+                disk_gb=PROVISION_DISK_GB, interruptible=args.interruptible)
+        host, port = deploy_and_launch(instance, args.model, args.num_gpus,
+                                       args.check_swebench, args.mode, args.family)
 
         final_status = poll_until_done(host, port, REMOTE_STATUS_PATH, Status,
                                        Stage.DONE, POLL_INTERVAL_SECONDS)

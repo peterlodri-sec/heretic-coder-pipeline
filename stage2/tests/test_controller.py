@@ -8,7 +8,8 @@ from enums import Stage
 from shared.enums import Verdict
 from status_io import Status
 
-_ARGS = argparse.Namespace(model="src", crabcc_traces="traces", max_steps=1, check_swebench=True)
+_ARGS = argparse.Namespace(model="src", crabcc_traces="traces", max_steps=1,
+                           check_swebench=True, family="gpt_oss", interruptible=True)
 
 
 def _done(v):
@@ -70,7 +71,27 @@ def test_deploy_threads_check_swebench_enabled():
     assert "STAGE2_CHECK_SWEBENCH='1'" in cmd
 
 
-def test_deploy_ships_hf_token_and_enables_hf_transfer():
+def test_deploy_threads_family_env():
+    inst = {"ssh_host": "h", "ssh_port": 22}
+    with patch("controller.local_hf_token_path", return_value=None), \
+         patch("controller.ssh_utils.scp_to"), patch("controller.ssh_utils.run_ssh") as run_ssh:
+        controller.deploy_and_launch(inst, "m", 5, "traces", True, "gpt_oss")
+    assert "STAGE2_FAMILY='gpt_oss'" in run_ssh.call_args_list[-1].args[2]
+
+
+def test_main_provisions_interruptible():
+    vast = MagicMock()
+    inst = {"id": 7, "ssh_host": "h", "ssh_port": 22}
+    with patch("controller.parse_args", return_value=_ARGS), \
+         patch("controller.load_api_key", return_value="key"), \
+         patch("controller.VastAI", return_value=vast), \
+         patch("controller.provision_lock", lambda: contextlib.nullcontext()), \
+         patch("controller.vast_provision.provision", return_value=inst) as prov, \
+         patch("controller.deploy_and_launch", return_value=("root@h", 22)), \
+         patch("controller.ssh_utils.scp_from"), \
+         patch("controller.poll_until_done", return_value=_done(Verdict.PASS)):
+        controller.main()
+    assert prov.call_args.kwargs["interruptible"] is True  # sft defaults ON
     inst = {"ssh_host": "h", "ssh_port": 22}
     with patch("controller.local_hf_token_path", return_value="/tmp/tok"), \
          patch("controller.ssh_utils.scp_to") as scp, \

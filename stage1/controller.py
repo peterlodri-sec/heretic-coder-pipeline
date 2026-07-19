@@ -28,7 +28,7 @@ SETUP_TIMEOUT_SECONDS = 1200
 SSH_USER = "root"
 
 
-def deploy_and_launch(instance: dict, model: str, n_trials: int):
+def deploy_and_launch(instance: dict, model: str, n_trials: int, family: str = "gpt_oss"):
     host = f"{SSH_USER}@{instance['ssh_host']}"
     port = instance["ssh_port"]
 
@@ -44,7 +44,7 @@ def deploy_and_launch(instance: dict, model: str, n_trials: int):
     ssh_utils.run_ssh(
         host, port,
         f"cd {REMOTE_ROOT}/remote && HF_HUB_ENABLE_HF_TRANSFER=1 "
-        f"STAGE1_MODEL='{model}' STAGE1_N_TRIALS='{n_trials}' "
+        f"STAGE1_MODEL='{model}' STAGE1_FAMILY='{family}' STAGE1_N_TRIALS='{n_trials}' "
         "tmux new-session -d -s heretic 'python3 run_stage1.py'"
     )
     return host, port
@@ -52,8 +52,14 @@ def deploy_and_launch(instance: dict, model: str, n_trials: int):
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--model", default="Qwen/Qwen2.5-Coder-32B-Instruct")
+    parser.add_argument("--model", default="unsloth/gpt-oss-120b-unsloth-bnb-4bit")
+    parser.add_argument("--family", default="gpt_oss")  # drives heretic bnb_4bit quant
     parser.add_argument("--n-trials", type=int, default=200)
+    # Heretic is short; a spot preempt mid-abliteration wastes the whole run, so
+    # interruptible defaults OFF here (opt in with --interruptible). Cost lever
+    # (plan Gemini): interruptible H200 ~40-60% cheaper.
+    parser.add_argument("--interruptible", action="store_true",
+                        default=os.environ.get("INTERRUPTIBLE") == "1")
     return parser.parse_args()
 
 
@@ -69,10 +75,12 @@ def main() -> int:
         with provision_lock():
             instance = vast_provision.provision(
                 vast,
-                query="gpu_name=H100_SXM disk_space>=400 rentable=true",
-                disk_gb=400,
+                # ~240GB bf16 export for the 120B -> bump disk to 600.
+                query="gpu_name=H100_SXM disk_space>=600 rentable=true",
+                disk_gb=600,
+                interruptible=args.interruptible,
             )
-        host, port = deploy_and_launch(instance, args.model, args.n_trials)
+        host, port = deploy_and_launch(instance, args.model, args.n_trials, args.family)
 
         final_status = poll_until_done(host, port, REMOTE_STATUS_PATH, Status, Stage.DONE, POLL_INTERVAL_SECONDS)
         verdict = final_status.verdict or Verdict.ERROR

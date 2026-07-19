@@ -30,7 +30,7 @@ SSH_USER = "root"
 
 
 def deploy_and_launch(instance: dict, model: str, max_steps: int, crabcc_traces: str,
-                      check_swebench: bool):
+                      check_swebench: bool, family: str = "gpt_oss"):
     host = f"{SSH_USER}@{instance['ssh_host']}"
     port = instance["ssh_port"]
 
@@ -46,7 +46,7 @@ def deploy_and_launch(instance: dict, model: str, max_steps: int, crabcc_traces:
     ssh_utils.run_ssh(
         host, port,
         f"cd {REMOTE_ROOT}/remote && HF_HUB_ENABLE_HF_TRANSFER=1 "
-        f"STAGE2_MODEL='{model}' STAGE2_MAX_STEPS='{max_steps}' "
+        f"STAGE2_MODEL='{model}' STAGE2_FAMILY='{family}' STAGE2_MAX_STEPS='{max_steps}' "
         f"STAGE2_CRABCC_TRACES='{crabcc_traces}' "
         f"STAGE2_CHECK_SWEBENCH='{int(check_swebench)}' "
         "tmux new-session -d -s sft 'python3 run_stage2.py'"
@@ -56,10 +56,17 @@ def deploy_and_launch(instance: dict, model: str, max_steps: int, crabcc_traces:
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--model", default="PeetPedro/qwen2.5-coder-32b-instruct-heretic")
+    parser.add_argument("--model", default="PeetPedro/gpt-oss-120b-heretic")
+    parser.add_argument("--family", default="gpt_oss")
     parser.add_argument("--crabcc-traces", dest="crabcc_traces", default="traces")
     parser.add_argument("--max-steps", dest="max_steps", type=int, default=-1)
     parser.add_argument("--no-swebench", dest="check_swebench", action="store_false")
+    # Cost lever (plan Gemini): SFT is long + single-GPU + checkpoints, so an
+    # interruptible H200 (~40-60% cheaper) resumes cleanly after a preempt ->
+    # default ON. Force on-demand with --on-demand or INTERRUPTIBLE=0.
+    parser.add_argument("--interruptible", action="store_true",
+                        default=os.environ.get("INTERRUPTIBLE", "1") == "1")
+    parser.add_argument("--on-demand", dest="interruptible", action="store_false")
     return parser.parse_args()
 
 
@@ -72,9 +79,10 @@ def main() -> int:
     try:
         with provision_lock():
             instance = vast_provision.provision(
-                vast, label=PROVISION_LABEL, query=PROVISION_QUERY, disk_gb=PROVISION_DISK_GB)
+                vast, label=PROVISION_LABEL, query=PROVISION_QUERY, disk_gb=PROVISION_DISK_GB,
+                interruptible=args.interruptible)
         host, port = deploy_and_launch(instance, args.model, args.max_steps, args.crabcc_traces,
-                                       args.check_swebench)
+                                       args.check_swebench, args.family)
 
         final_status = poll_until_done(host, port, REMOTE_STATUS_PATH, Status,
                                        Stage.DONE, POLL_INTERVAL_SECONDS)

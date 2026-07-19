@@ -5,10 +5,12 @@ MAX_PROMPT_LENGTH = 2048
 
 
 def train(model_source: str, data_path: str, out_dir: str,
-          num_epochs: int = 1, load_in_4bit: bool = False) -> tuple[float, object, object]:
+          num_epochs: int = 1, load_in_4bit: bool | None = None,
+          family: str = "gpt_oss") -> tuple[float, object, object]:
     from unsloth import PatchDPOTrainer
     from trl import ORPOConfig, ORPOTrainer
     from datasets import load_dataset
+    from shared.model_family import default_load_in_4bit
     from shared.train_common import load_lora_model
 
     # Unsloth patches the DPO-family trainers (grad-checkpoint + concatenated
@@ -16,8 +18,10 @@ def train(model_source: str, data_path: str, out_dir: str,
     # `use_gradient_checkpointing="unsloth"` mispatches -> OOM/crash mid-train.
     PatchDPOTrainer()
 
-    # bf16 for the dense 32B; gpt-oss flips load_in_4bit=True (MoE-QLoRA). r32/a64
-    # LoRA spec centralized in shared.train_common.
+    # Family drives precision when unset: gpt-oss ORPO MUST be 4-bit (MoE-QLoRA);
+    # dense qwen-32B trains bf16 16-bit. r32/a64 LoRA spec in shared.train_common.
+    if load_in_4bit is None:
+        load_in_4bit = default_load_in_4bit(family)
     model, tokenizer = load_lora_model(
         model_source, max_seq_len=MAX_LENGTH, load_in_4bit=load_in_4bit,
     )

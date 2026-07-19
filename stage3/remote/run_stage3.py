@@ -19,14 +19,16 @@ from shared import export
 from shared.enums import Verdict
 from status_io import Status
 
-MODEL_SOURCE = os.environ.get("STAGE3_MODEL", "PeetPedro/qwen2.5-coder-32b-instruct-heretic-sft")
+MODEL_SOURCE = os.environ.get("STAGE3_MODEL", "PeetPedro/gpt-oss-120b-heretic-sft")
+FAMILY = os.environ.get("STAGE3_FAMILY", "gpt_oss")  # drives 4-bit (gpt-oss ORPO)
 CRABCC_TRACE_DIR = os.environ.get("STAGE3_CRABCC_TRACES", "traces")
 CHECK_SWEBENCH = os.environ.get("STAGE3_CHECK_SWEBENCH", "1") == "1"
+CHEAP_EVAL = os.environ.get("CHEAP_EVAL", "0") == "1"  # reduced SWE-bench in dev
 DATA_PATH = "pairs.jsonl"
 ORPO_OUT = "swe-coder-orpo"
 MERGED_OUT = "swe-coder-orpo-final"
 GGUF_OUT = "swe-coder-orpo-final-gguf"
-HF_REPO_ID = "PeetPedro/qwen2.5-coder-32b-instruct-heretic-orpo"
+HF_REPO_ID = "PeetPedro/gpt-oss-120b-heretic-orpo"
 NUM_EPOCHS = int(os.environ.get("STAGE3_EPOCHS", "1"))
 STATUS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "status.json")
 LOG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "orpo_run.log")
@@ -60,7 +62,8 @@ def _evaluate(check_swebench: bool) -> dict:
     # which breaks plain model loading in eval).
     repo_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # -> /root
     stage_remote = os.path.dirname(os.path.abspath(__file__))  # where MERGED_OUT is relative to
-    env = {**os.environ, "PYTHONPATH": repo_root, "HF_ALLOW_CODE_EVAL": "1"}
+    env = {**os.environ, "PYTHONPATH": repo_root, "HF_ALLOW_CODE_EVAL": "1",
+           "CHEAP_EVAL": "1" if CHEAP_EVAL else "0"}  # eval runner reads CHEAP_EVAL
     proc = subprocess.run(
         [sys.executable, "-m", "shared.eval.run_evals", MERGED_OUT, MODEL_SOURCE,
          "1" if check_swebench else "0"],
@@ -100,7 +103,8 @@ def main(check_swebench: bool = True) -> None:
 
     update_status(status, stage=Stage.TRAINING)
     try:
-        loss, model, tokenizer = orpo_train.train(MODEL_SOURCE, DATA_PATH, ORPO_OUT, num_epochs=NUM_EPOCHS)
+        loss, model, tokenizer = orpo_train.train(MODEL_SOURCE, DATA_PATH, ORPO_OUT,
+                                                  num_epochs=NUM_EPOCHS, family=FAMILY)
         update_status(status, train_loss=loss)
         export.export_model(model, tokenizer, MERGED_OUT, GGUF_OUT)
     except Exception as error:

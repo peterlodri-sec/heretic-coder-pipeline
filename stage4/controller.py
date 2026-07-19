@@ -33,7 +33,7 @@ SSH_USER = "root"
 
 
 def deploy_and_launch(instance: dict, model: str, rounds: int, num_candidates: int,
-                      check_swebench: bool):
+                      check_swebench: bool, family: str = "gpt_oss"):
     host = f"{SSH_USER}@{instance['ssh_host']}"
     port = instance["ssh_port"]
 
@@ -50,7 +50,7 @@ def deploy_and_launch(instance: dict, model: str, rounds: int, num_candidates: i
     ssh_utils.run_ssh(
         host, port,
         f"cd {REMOTE_ROOT}/remote && HF_HUB_ENABLE_HF_TRANSFER=1 "
-        f"STAGE4_MODEL='{model}' STAGE4_ROUNDS='{rounds}' "
+        f"STAGE4_MODEL='{model}' STAGE4_FAMILY='{family}' STAGE4_ROUNDS='{rounds}' "
         f"STAGE4_NUM_CANDIDATES='{num_candidates}' "
         f"STAGE4_CHECK_SWEBENCH='{int(check_swebench)}' "
         "tmux new-session -d -s rft 'python3 run_stage4.py'"
@@ -60,10 +60,18 @@ def deploy_and_launch(instance: dict, model: str, rounds: int, num_candidates: i
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--model", default="PeetPedro/qwen2.5-coder-32b-instruct-heretic-sft")
-    parser.add_argument("--rounds", type=int, default=3)
+    parser.add_argument("--model", default="PeetPedro/gpt-oss-120b-heretic-sft")
+    parser.add_argument("--family", default="gpt_oss")
+    # Cost lever (plan Gemini): RFT plateaus fast — 2 rounds x N=8 is the
+    # diminishing-returns sweet spot.
+    parser.add_argument("--rounds", type=int, default=2)
     parser.add_argument("--num-candidates", dest="num_candidates", type=int, default=8)
     parser.add_argument("--no-swebench", dest="check_swebench", action="store_false")
+    # Cost lever: RFT loop is single-GPU + long + checkpoints per round ->
+    # interruptible H200 default ON. --on-demand / INTERRUPTIBLE=0 to force.
+    parser.add_argument("--interruptible", action="store_true",
+                        default=os.environ.get("INTERRUPTIBLE", "1") == "1")
+    parser.add_argument("--on-demand", dest="interruptible", action="store_false")
     return parser.parse_args()
 
 
@@ -76,9 +84,10 @@ def main() -> int:
     try:
         with provision_lock():
             instance = vast_provision.provision(
-                vast, label=PROVISION_LABEL, query=PROVISION_QUERY, disk_gb=PROVISION_DISK_GB)
+                vast, label=PROVISION_LABEL, query=PROVISION_QUERY, disk_gb=PROVISION_DISK_GB,
+                interruptible=args.interruptible)
         host, port = deploy_and_launch(instance, args.model, args.rounds,
-                                       args.num_candidates, args.check_swebench)
+                                       args.num_candidates, args.check_swebench, args.family)
 
         final_status = poll_until_done(host, port, REMOTE_STATUS_PATH, Status,
                                        Stage.DONE, POLL_INTERVAL_SECONDS)

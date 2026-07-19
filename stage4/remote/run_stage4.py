@@ -29,11 +29,15 @@ from shared.enums import Verdict
 from stage2.remote import sft_train
 from status_io import Status
 
-MODEL_SOURCE = os.environ.get("STAGE4_MODEL", "PeetPedro/qwen2.5-coder-32b-instruct-heretic-sft")
-NUM_ROUNDS = int(os.environ.get("STAGE4_ROUNDS", "3"))
+MODEL_SOURCE = os.environ.get("STAGE4_MODEL", "PeetPedro/gpt-oss-120b-heretic-sft")
+FAMILY = os.environ.get("STAGE4_FAMILY", "gpt_oss")  # threaded into reused sft_train
+# Cost lever (plan Gemini): RFT plateaus fast — 2 rounds x N=8 candidates is the
+# diminishing-returns sweet spot; more rounds mostly burn compute.
+NUM_ROUNDS = int(os.environ.get("STAGE4_ROUNDS", "2"))
 NUM_CANDIDATES = int(os.environ.get("STAGE4_NUM_CANDIDATES", "8"))
 CHECK_SWEBENCH = os.environ.get("STAGE4_CHECK_SWEBENCH", "1") == "1"
-HF_REPO_ID = "PeetPedro/qwen2.5-coder-32b-instruct-heretic-rft"
+CHEAP_EVAL = os.environ.get("CHEAP_EVAL", "0") == "1"  # reduced SWE-bench in dev
+HF_REPO_ID = "PeetPedro/gpt-oss-120b-heretic-rft"
 GGUF_OUT = "swe-coder-rft-final-gguf"
 STATUS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "status.json")
 LOG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "rft_run.log")
@@ -105,7 +109,8 @@ def _evaluate(merged: str, base: str, check_swebench: bool) -> dict:
     # Isolate evals from the training process (unsloth monkey-patches transformers).
     repo_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # -> /root
     stage_remote = os.path.dirname(os.path.abspath(__file__))
-    env = {**os.environ, "PYTHONPATH": repo_root, "HF_ALLOW_CODE_EVAL": "1"}
+    env = {**os.environ, "PYTHONPATH": repo_root, "HF_ALLOW_CODE_EVAL": "1",
+           "CHEAP_EVAL": "1" if CHEAP_EVAL else "0"}  # eval runner reads CHEAP_EVAL
     proc = subprocess.run(
         [sys.executable, "-m", "shared.eval.run_evals", merged, base,
          "1" if check_swebench else "0"],
@@ -150,7 +155,7 @@ def run_round(status: Status, round_idx: int, model_source: str, problems: list[
 
     update_status(status, stage=Stage.TRAINING)
     loss, model, tokenizer = sft_train.train(model_source, f"rft_round{round_idx}.jsonl",
-                                             f"swe-coder-rft-r{round_idx}")
+                                             f"swe-coder-rft-r{round_idx}", family=FAMILY)
     export.export_model(model, tokenizer, merged_dir, gguf_dir)
     update_status(status, train_loss=loss)
     return loss, merged_dir

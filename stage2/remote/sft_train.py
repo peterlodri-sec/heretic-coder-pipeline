@@ -5,13 +5,18 @@ MAX_SEQ_LEN = 16384
 
 def train(model_source: str, data_path: str, out_dir: str,
           max_steps: int = -1, num_epochs: int = 3,
-          load_in_4bit: bool = False) -> tuple[float, object, object]:
+          load_in_4bit: bool | None = None,
+          family: str = "gpt_oss") -> tuple[float, object, object]:
     from trl import SFTConfig, SFTTrainer
     from datasets import load_dataset
+    from shared.model_family import default_load_in_4bit, response_delimiters
     from shared.train_common import load_lora_model
 
-    # bf16 for the dense 32B (load_in_4bit=False); gpt-oss flips it True (MoE-QLoRA).
-    # LoRA spec (r32/a64, MoE-safe targets) is centralized in shared.train_common.
+    # Family drives precision when the caller doesn't force it: gpt-oss -> 4-bit
+    # MoE-QLoRA, dense qwen-32B -> bf16 16-bit. LoRA spec (r32/a64, MoE-safe
+    # targets) is centralized in shared.train_common.
+    if load_in_4bit is None:
+        load_in_4bit = default_load_in_4bit(family)
     model, tokenizer = load_lora_model(
         model_source, max_seq_len=MAX_SEQ_LEN, load_in_4bit=load_in_4bit,
     )
@@ -33,13 +38,15 @@ def train(model_source: str, data_path: str, out_dir: str,
             optim="adamw_8bit", logging_steps=10, output_dir=out_dir,
         ),
     )
-    # Mask the prompt so loss is computed on assistant responses only
-    # (Unsloth's ChatML response-only helper; replaces TRL's assistant_only_loss).
+    # Mask the prompt so loss is computed on assistant responses only. Delimiters
+    # are family-aware (ChatML for qwen, harmony final-channel for gpt-oss) —
+    # replaces the hardcoded ChatML strings + TRL's assistant_only_loss.
     from unsloth.chat_templates import train_on_responses_only
+    instruction_part, response_part = response_delimiters(family)
     trainer = train_on_responses_only(
         trainer,
-        instruction_part="<|im_start|>user\n",
-        response_part="<|im_start|>assistant\n",
+        instruction_part=instruction_part,
+        response_part=response_part,
     )
     stats = trainer.train()
     return float(stats.training_loss), model, tokenizer

@@ -13,7 +13,8 @@ from enums import Stage
 from shared.enums import Verdict
 from status_io import Status
 
-_ARGS = argparse.Namespace(model="Qwen/Qwen2.5-Coder-32B-Instruct", n_trials=5)
+_ARGS = argparse.Namespace(model="unsloth/gpt-oss-120b-unsloth-bnb-4bit", n_trials=5,
+                           family="gpt_oss", interruptible=False)
 
 
 def _done(verdict):
@@ -124,3 +125,29 @@ def test_deploy_and_launch_ships_hf_token_and_enables_hf_transfer():
     assert "/root/.cache/huggingface/token" in token_dests
     launched = " ".join(str(c) for c in run_ssh.call_args_list)
     assert "HF_HUB_ENABLE_HF_TRANSFER=1" in launched
+
+
+def test_deploy_threads_family_env():
+    inst = {"ssh_host": "h", "ssh_port": 22}
+    with patch("controller.local_hf_token_path", return_value=None), \
+         patch("controller.ssh_utils.scp_to"), patch("controller.ssh_utils.run_ssh") as run_ssh:
+        controller.deploy_and_launch(inst, "m", 5, "gpt_oss")
+    launched = " ".join(str(c) for c in run_ssh.call_args_list)
+    assert "STAGE1_FAMILY='gpt_oss'" in launched
+
+
+def test_provision_uses_interruptible_flag_and_bigger_disk():
+    vast = MagicMock()
+    instance = {"id": 42, "ssh_host": "ssh1.vast.ai", "ssh_port": 12345}
+    args = argparse.Namespace(model="m", n_trials=5, family="gpt_oss", interruptible=True)
+    with patch("controller.parse_args", return_value=args), \
+         patch("controller.load_api_key", return_value="key"), \
+         patch("controller.VastAI", return_value=vast), \
+         patch("controller.provision_lock", lambda: contextlib.nullcontext()), \
+         patch("controller.vast_provision.provision", return_value=instance) as prov, \
+         patch("controller.deploy_and_launch", return_value=("root@h", 22)), \
+         patch("controller.ssh_utils.scp_from"), \
+         patch("controller.poll_until_done", return_value=_done(Verdict.PASS)):
+        controller.main()
+    assert prov.call_args.kwargs["interruptible"] is True
+    assert prov.call_args.kwargs["disk_gb"] == 600

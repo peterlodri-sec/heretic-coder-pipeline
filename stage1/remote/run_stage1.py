@@ -14,16 +14,21 @@ import study_metrics
 import verdict
 from enums import Stage
 from shared.enums import Verdict
+from shared.model_family import default_load_in_4bit
 from status_io import Status
 
-MODEL = os.environ.get("STAGE1_MODEL", "Qwen/Qwen2.5-Coder-32B-Instruct")
+MODEL = os.environ.get("STAGE1_MODEL", "unsloth/gpt-oss-120b-unsloth-bnb-4bit")
+FAMILY = os.environ.get("STAGE1_FAMILY", "gpt_oss")
 N_TRIALS = int(os.environ.get("STAGE1_N_TRIALS", "200"))
 STUDY_CHECKPOINT_DIR = "checkpoints"
 EXPORT_DIR = "heretic_export"
 TRIAL_INDEX = 0
 STATUS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "status.json")
 HERETIC_LOG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "heretic_run.log")
-HF_REPO_ID = "PeetPedro/qwen2.5-coder-32b-instruct-heretic"
+HF_REPO_ID = "PeetPedro/gpt-oss-120b-heretic"
+# gpt-oss-120b bf16 (~240GB) won't fit 1x H200 — abliterate under bitsandbytes
+# 4-bit. Family-driven: gpt-oss -> bnb_4bit, dense qwen -> full precision (None).
+QUANTIZATION = "bnb_4bit" if default_load_in_4bit(FAMILY) else None
 WALL_CLOCK_CEILING_SECONDS = 24 * 60 * 60
 
 
@@ -59,6 +64,9 @@ def run_heretic() -> None:
         "--study-checkpoint-dir", STUDY_CHECKPOINT_DIR,
         "--n-trials", str(N_TRIALS),
     ]
+    # bitsandbytes quantization (heretic `quantization` option) so the 120B fits.
+    if QUANTIZATION:
+        cmd += ["--quantization", QUANTIZATION]
     with open(HERETIC_LOG_PATH, "a") as logf:
         try:
             proc = subprocess.run(

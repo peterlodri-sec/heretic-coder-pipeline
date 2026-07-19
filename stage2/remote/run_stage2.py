@@ -20,15 +20,20 @@ from enums import Stage
 from shared.enums import Verdict
 from status_io import Status
 
-MODEL_SOURCE = os.environ.get("STAGE2_MODEL", "PeetPedro/qwen2.5-coder-32b-instruct-heretic")
+MODEL_SOURCE = os.environ.get("STAGE2_MODEL", "PeetPedro/gpt-oss-120b-heretic")
+FAMILY = os.environ.get("STAGE2_FAMILY", "gpt_oss")  # drives delimiters + 4-bit
 CRABCC_TRACE_DIR = os.environ.get("STAGE2_CRABCC_TRACES", "traces")
 DATA_PATH = "train.jsonl"
 SFT_OUT = "swe-coder-sft"
 MERGED_OUT = "swe-coder-final"
 GGUF_OUT = "swe-coder-final-gguf"
-HF_REPO_ID = "PeetPedro/qwen2.5-coder-32b-instruct-heretic-sft"
+HF_REPO_ID = "PeetPedro/gpt-oss-120b-heretic-sft"
 MAX_STEPS = int(os.environ.get("STAGE2_MAX_STEPS", "-1"))
 CHECK_SWEBENCH = os.environ.get("STAGE2_CHECK_SWEBENCH", "1") == "1"
+# Cost lever (plan Gemini §eval): reduced SWE-bench subset during dev rounds, full
+# at the final verdict. Threaded to the eval runner via env; subset logic lands in
+# the eval pass (shared/eval), not here.
+CHEAP_EVAL = os.environ.get("CHEAP_EVAL", "0") == "1"
 STATUS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "status.json")
 LOG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "sft_run.log")
 CONTAMINATED = frozenset()  # extend if a contaminated source is added later
@@ -64,7 +69,8 @@ def _evaluate(check_swebench: bool) -> dict:
     # which breaks plain model loading in eval).
     repo_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # -> /root
     stage_remote = os.path.dirname(os.path.abspath(__file__))  # where MERGED_OUT is relative to
-    env = {**os.environ, "PYTHONPATH": repo_root, "HF_ALLOW_CODE_EVAL": "1"}
+    env = {**os.environ, "PYTHONPATH": repo_root, "HF_ALLOW_CODE_EVAL": "1",
+           "CHEAP_EVAL": "1" if CHEAP_EVAL else "0"}  # eval runner reads CHEAP_EVAL
     proc = subprocess.run(
         [sys.executable, "-m", "shared.eval.run_evals", MERGED_OUT, MODEL_SOURCE,
          "1" if check_swebench else "0"],
@@ -104,7 +110,8 @@ def main(check_swebench: bool = True) -> None:
 
     update_status(status, stage=Stage.TRAINING)
     try:
-        loss, model, tokenizer = sft_train.train(MODEL_SOURCE, DATA_PATH, SFT_OUT, max_steps=MAX_STEPS)
+        loss, model, tokenizer = sft_train.train(MODEL_SOURCE, DATA_PATH, SFT_OUT,
+                                                 max_steps=MAX_STEPS, family=FAMILY)
         update_status(status, train_loss=loss)
         export.export_model(model, tokenizer, MERGED_OUT, GGUF_OUT)
     except Exception as error:
