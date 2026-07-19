@@ -70,6 +70,7 @@ def _evaluate(check_swebench: bool) -> dict:
     repo_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # -> /root
     stage_remote = os.path.dirname(os.path.abspath(__file__))  # where MERGED_OUT is relative to
     env = {**os.environ, "PYTHONPATH": repo_root, "HF_ALLOW_CODE_EVAL": "1",
+           "EVAL_FAMILY": FAMILY,  # harmony-aware eval parsing for gpt-oss
            "CHEAP_EVAL": "1" if CHEAP_EVAL else "0"}  # eval runner reads CHEAP_EVAL
     proc = subprocess.run(
         [sys.executable, "-m", "shared.eval.run_evals", MERGED_OUT, MODEL_SOURCE,
@@ -104,7 +105,7 @@ def main(check_swebench: bool = True) -> None:
 
     update_status(status, stage=Stage.PREPARING_DATA)
     try:
-        dataprep_pipeline.build(_sources(), DATA_PATH, contaminated=CONTAMINATED)
+        dataprep_pipeline.build(_sources(), DATA_PATH, contaminated=CONTAMINATED, family=FAMILY)
     except Exception as error:
         return fail(status, f"data prep failed: {error}")
 

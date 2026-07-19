@@ -1,6 +1,6 @@
 import json
 
-from shared.dataprep.schema import TrainingExample, tool_call_block
+from shared.dataprep.schema import TrainingExample
 from shared.dataprep.sources.base import DataSource
 from shared.dataprep import loaders
 
@@ -16,7 +16,8 @@ class XLAMSource(DataSource):
 
     Real schema: `query` (str), `tools` (JSON string), `answers` (JSON string).
     `tools` is put in the system message; `answers` (the gold call list) is
-    rendered as one Hermes <tool_call> block per call.
+    recorded as neutral structured tool calls (render_for_family serializes them
+    to Hermes for qwen / harmony for gpt-oss).
     """
 
     name = "xlam"
@@ -26,15 +27,15 @@ class XLAMSource(DataSource):
             tools = json.loads(row["tools"])
             answers = json.loads(row["answers"])
             system = TOOL_SYSTEM_PROMPT + json.dumps(tools)
-            assistant = "\n".join(
-                tool_call_block(call["name"], call.get("arguments", {}))
+            tool_calls = [
+                {"name": call["name"], "arguments": call.get("arguments", {})}
                 for call in answers
-            )
+            ]
             yield TrainingExample(
                 source=self.name,
                 messages=[
                     {"role": "system", "content": system},
                     {"role": "user", "content": row["query"]},
-                    {"role": "assistant", "content": assistant},
+                    {"role": "assistant", "content": "", "tool_calls": tool_calls},
                 ],
             )

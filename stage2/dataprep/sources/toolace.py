@@ -1,6 +1,6 @@
 import ast
 
-from shared.dataprep.schema import TrainingExample, tool_call_block
+from shared.dataprep.schema import TrainingExample
 from shared.dataprep.sources.base import DataSource
 from shared.dataprep import loaders
 
@@ -42,7 +42,8 @@ class ToolACESource(DataSource):
 
     Real schema: `system` (str) + `conversations` (list of {from, value}),
     from in {user, assistant, tool}. Assistant tool calls are BRACKET format;
-    they are normalized to Hermes <tool_call> when parseable, else left as-is.
+    parseable calls become neutral structured tool_calls (render_for_family
+    serializes to Hermes/harmony), else the text is left as-is.
     """
 
     name = "toolace"
@@ -56,8 +57,11 @@ class ToolACESource(DataSource):
                 if role == "assistant":
                     calls = _parse_bracket_calls(content)
                     if calls is not None:
-                        content = "\n".join(
-                            tool_call_block(name, args) for name, args in calls
-                        )
+                        messages.append({
+                            "role": "assistant", "content": "",
+                            "tool_calls": [{"name": name, "arguments": args}
+                                           for name, args in calls],
+                        })
+                        continue
                 messages.append({"role": role, "content": content})
             yield TrainingExample(source=self.name, messages=messages)

@@ -56,3 +56,27 @@ def test_build_default_contaminated_is_empty(tmp_path):
     out = tmp_path / "train.jsonl"
     sources = [FakeSource("magicoder", [_ex("magicoder")])]
     assert build(sources, str(out)) == 1
+
+
+def _tool_ex():
+    return TrainingExample(source="xlam", messages=[
+        {"role": "user", "content": "weather?"},
+        {"role": "assistant", "content": "",
+         "tool_calls": [{"name": "get_weather", "arguments": {"city": "NYC"}}]},
+    ])
+
+
+def test_build_renders_hermes_for_qwen(tmp_path):
+    out = tmp_path / "train.jsonl"
+    build([FakeSource("xlam", [_tool_ex()])], str(out), family="qwen")
+    msgs = json.loads(out.read_text().splitlines()[0])["messages"]
+    assert msgs[1] == {"role": "assistant",
+                       "content": '<tool_call>\n{"name": "get_weather", "arguments": {"city": "NYC"}}\n</tool_call>'}
+
+
+def test_build_renders_structured_for_gpt_oss(tmp_path):
+    out = tmp_path / "train.jsonl"
+    # default family is gpt_oss -> structured tool_calls pass through
+    build([FakeSource("xlam", [_tool_ex()])], str(out))
+    msgs = json.loads(out.read_text().splitlines()[0])["messages"]
+    assert msgs[1]["tool_calls"] == [{"name": "get_weather", "arguments": {"city": "NYC"}}]

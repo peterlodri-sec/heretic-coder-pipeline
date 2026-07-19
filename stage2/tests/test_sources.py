@@ -5,6 +5,7 @@ from dataprep.sources.magicoder import MagicoderSource
 from dataprep.sources.xlam import XLAMSource
 from dataprep.sources.toolace import ToolACESource
 from dataprep.sources.crabcc import CrabccSource
+from shared.dataprep.schema import render_for_family
 
 
 # --- Magicoder: cols problem/solution -> user/assistant -------------------
@@ -38,8 +39,11 @@ def test_xlam_puts_tools_in_system_and_answers_as_tool_calls():
     # tools land in the system message
     assert "get_weather" in ex.messages[0]["content"]
     assert ex.messages[1]["content"] == "weather in NYC?"
-    # gold answer rendered as one Hermes <tool_call> block
-    assistant = ex.messages[2]["content"]
+    # gold answer recorded as neutral structured tool call
+    assert ex.messages[2]["tool_calls"] == [
+        {"name": "get_weather", "arguments": {"city": "NYC"}}]
+    # qwen render collapses it to one Hermes <tool_call> block
+    assistant = render_for_family(ex.messages, "qwen")[2]["content"]
     assert assistant.startswith("<tool_call>") and assistant.endswith("</tool_call>")
     inner = assistant[len("<tool_call>"):-len("</tool_call>")].strip()
     assert json.loads(inner) == {"name": "get_weather", "arguments": {"city": "NYC"}}
@@ -52,7 +56,8 @@ def test_xlam_renders_multiple_calls_as_separate_blocks():
              "answers": json.dumps(answers), "id": "2"}]
     with patch("shared.dataprep.loaders.load_xlam_rows", return_value=rows):
         ex = next(iter(XLAMSource().examples()))
-    assert ex.messages[2]["content"].count("<tool_call>") == 2
+    assert len(ex.messages[2]["tool_calls"]) == 2
+    assert render_for_family(ex.messages, "qwen")[2]["content"].count("<tool_call>") == 2
 
 
 # --- ToolACE: from/value mapping + bracket -> Hermes -----------------------
@@ -75,13 +80,17 @@ def test_toolace_maps_from_value_and_prepends_system():
     roles = [m["role"] for m in ex.messages]
     assert roles == ["system", "user", "assistant", "tool", "assistant"]
     assert ex.messages[0]["content"] == "You can call tools."
-    # bracket assistant call normalized to Hermes
-    call = ex.messages[2]["content"]
+    # bracket assistant call recorded as neutral structured tool call
+    assert ex.messages[2]["tool_calls"] == [
+        {"name": "get_weather", "arguments": {"city": "NYC", "days": 3}}]
+    # qwen render normalizes it to Hermes
+    call = render_for_family(ex.messages, "qwen")[2]["content"]
     assert call.startswith("<tool_call>")
     assert json.loads(call[len("<tool_call>"):-len("</tool_call>")].strip()) == {
         "name": "get_weather", "arguments": {"city": "NYC", "days": 3}}
-    # tool result + plain assistant turn preserved verbatim
+    # tool result + plain assistant turn preserved verbatim (plain text, no name)
     assert ex.messages[3]["role"] == "tool" and ex.messages[3]["content"] == '{"temp": 20}'
+    assert "name" not in ex.messages[3]
     assert ex.messages[4]["content"] == "It is 20 degrees."
 
 
@@ -109,6 +118,11 @@ def test_crabcc_reads_local_traces():
     ]}
     with patch("shared.dataprep.loaders.load_traces", return_value=[trace]):
         exs = list(CrabccSource(trace_dir="/x").examples())
-    contents = [m["content"] for m in exs[0].messages]
+    msgs = exs[0].messages
+    # neutral structured tool call + named tool result (name threaded from call)
+    assert msgs[1]["tool_calls"] == [{"name": "bash", "arguments": {"cmd": "pytest"}}]
+    assert msgs[2]["role"] == "tool" and msgs[2]["name"] == "bash" and msgs[2]["content"] == "ok"
+    # qwen render restores Hermes <tool_call>/<tool_response>
+    contents = [m["content"] for m in render_for_family(msgs, "qwen")]
     assert any("<tool_call>" in c for c in contents)
     assert any("<tool_response>" in c for c in contents)
