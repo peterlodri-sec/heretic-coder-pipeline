@@ -74,6 +74,7 @@ def _evaluate(check_swebench: bool) -> dict:
     repo_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # -> /root
     stage_remote = os.path.dirname(os.path.abspath(__file__))
     env = {**os.environ, "PYTHONPATH": repo_root, "HF_ALLOW_CODE_EVAL": "1",
+           "EVAL_FAMILY": FAMILY,  # harmony-aware eval parsing for gpt-oss
            "CHEAP_EVAL": "1" if CHEAP_EVAL else "0"}  # eval runner reads CHEAP_EVAL
     proc = subprocess.run(
         [sys.executable, "-m", "shared.eval.run_evals", MERGED_OUT, MODEL_SOURCE,

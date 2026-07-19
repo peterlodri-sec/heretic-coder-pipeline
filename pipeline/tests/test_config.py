@@ -8,8 +8,10 @@ from pipeline.config import (
 from shared.model_family import ModelFamily
 
 
-def test_base_model_is_gpt_oss_120b_bnb_4bit():
-    assert BASE_MODEL == "unsloth/gpt-oss-120b-unsloth-bnb-4bit"
+def test_base_model_is_gpt_oss_120b_bf16_heretic_entry():
+    # Pipeline entry model = heretic's BF16 input (NOT a pre-quantized bnb-4bit
+    # repo; double quantization breaks heretic's down_proj/experts surgery).
+    assert BASE_MODEL == "unsloth/gpt-oss-120b-BF16"
     assert MODEL_FAMILY is ModelFamily.GPT_OSS
 
 

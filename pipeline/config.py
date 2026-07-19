@@ -2,10 +2,15 @@ from dataclasses import dataclass
 
 from shared.model_family import ModelFamily
 
-# Frontier target: gpt-oss-120b (MoE, harmony format). 4-bit MoE-QLoRA base so the
-# 120B fits 1x H200 for the single-GPU stages. MODEL_FAMILY drives family-aware
-# knobs (response delimiters, load_in_4bit) threaded into the trainers.
-BASE_MODEL = "unsloth/gpt-oss-120b-unsloth-bnb-4bit"
+# Frontier target: gpt-oss-120b (MoE, harmony format). BASE_MODEL is the pipeline
+# ENTRY model — the runner feeds it as --model to the first stage (heretic), which
+# MUST abliterate the BF16 source: heretic has no MXFP4 path and re-quantizing an
+# already-bnb-4bit repo (double quantization) breaks the down_proj/experts surgery.
+# The 4-bit MoE-QLoRA precision for the single-GPU TRAINING stages is applied
+# per-stage inside the trainers (load_in_4bit via family) on the heretic-output
+# repo — NOT sourced from BASE_MODEL. MODEL_FAMILY drives family-aware knobs
+# (response delimiters, load_in_4bit) threaded into the trainers.
+BASE_MODEL = "unsloth/gpt-oss-120b-BF16"
 MODEL_FAMILY = ModelFamily.GPT_OSS
 
 # Validation baseline — the dense 32B (family QWEN). Kept selectable + testable:
