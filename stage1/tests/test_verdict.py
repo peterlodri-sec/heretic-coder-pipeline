@@ -42,7 +42,7 @@ def test_refusal_rate_just_under_new_goal_passes():
 
 def test_multiple_failures_are_all_reported():
     result = compute_verdict({
-        "refusal_rate": 0.5,
+        "refusal_rate": 0.6,
         "kl_divergence": 0.9,
         "mmlu_delta": 0.0,
         "gsm8k_delta": 0.0,
@@ -63,7 +63,7 @@ def test_kl_divergence_just_under_threshold_passes():
 
 def test_str_summarizes_failure_reasons():
     result = compute_verdict({
-        "refusal_rate": 0.5,
+        "refusal_rate": 0.6,
         "kl_divergence": 0.0,
         "mmlu_delta": 0.0,
         "gsm8k_delta": 0.0,
