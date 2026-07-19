@@ -111,6 +111,9 @@ def main() -> None:
     update_status(status, stage=Stage.EVALUATING)
     try:
         scores = study_metrics.load_chosen_trial_scores(STUDY_CHECKPOINT_DIR, MODEL, TRIAL_INDEX)
+        # run_benchmarks frees its 120B (del + empty_cache) before returning, so
+        # the base model is released before the candidate loads — the two are
+        # never GPU-resident at once. base_results is a small metrics dict only.
         base_results = capability_eval.run_benchmarks(MODEL)
         candidate_results = capability_eval.run_benchmarks(EXPORT_DIR)
         deltas = capability_eval.compute_deltas(base_results, candidate_results)

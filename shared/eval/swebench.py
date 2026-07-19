@@ -12,7 +12,7 @@ import shutil
 import subprocess
 import time
 
-from shared.eval._model import chat_generate, load_model
+from shared.eval._model import chat_generate, free_model, load_model
 
 DATASET = "princeton-nlp/SWE-bench_Verified"
 SPLIT = "test"
@@ -42,8 +42,14 @@ def generate_predictions(model_path, model_name, limit=None) -> str:
         instances = instances[:limit]
 
     model, tokenizer = load_model(model_path)
-    message_lists = [_prompt_messages(inst["problem_statement"]) for inst in instances]
-    patches = chat_generate(model, tokenizer, message_lists, max_new_tokens=1024)
+    try:
+        message_lists = [_prompt_messages(inst["problem_statement"]) for inst in instances]
+        patches = chat_generate(model, tokenizer, message_lists, max_new_tokens=1024)
+    finally:
+        # Free the model before the Docker harness runs (and before any next
+        # eval loads its own) — 2xH200 cannot hold two 120B models at once.
+        del model, tokenizer
+        free_model()
 
     preds_path = os.path.join(
         os.getcwd(), f"swebench_preds_{model_name.replace('/', '__')}.jsonl"

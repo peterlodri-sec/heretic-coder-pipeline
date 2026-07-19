@@ -30,6 +30,8 @@ def _final_answer(text: str, family: str = "gpt_oss") -> str:
 
 
 def _pass_at_1(model_path_or_id: str, family: str = "gpt_oss") -> float:
+    import gc
+
     import lm_eval
     from lm_eval.models.huggingface import HFLM
 
@@ -44,13 +46,36 @@ def _pass_at_1(model_path_or_id: str, family: str = "gpt_oss") -> float:
             outs = super().generate_until(requests, **kwargs)
             return [_final_answer(o, family) for o in outs]
 
-    hflm = _FinalChannelHFLM(pretrained=model_path_or_id, batch_size="auto")
-    out = lm_eval.simple_evaluate(
-        model=hflm, tasks=[TASK], confirm_run_unsafe_code=True
+    # parallelize=True shards the model across ALL visible GPUs via accelerate
+    # (device_map="auto") so a 120B (~240GB bf16) fits on 2xH200 instead of
+    # OOMing a single 140GB card. Exact flag on lm_eval 0.4.12's HFLM.__init__.
+    hflm = _FinalChannelHFLM(
+        pretrained=model_path_or_id, batch_size="auto", parallelize=True
     )
-    return _pick_pass_at_1(out["results"][TASK])
+    try:
+        out = lm_eval.simple_evaluate(
+            model=hflm, tasks=[TASK], confirm_run_unsafe_code=True
+        )
+        return _pick_pass_at_1(out["results"][TASK])
+    finally:
+        # regression() evals base then candidate; free each 120B here so the
+        # two are never resident at once (2xH200 = 282GB, one bf16 120B ~240GB).
+        del hflm
+        gc.collect()
+        try:
+            import torch
+
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+        except Exception:
+            pass
 
 
 def regression(base_model: str, candidate_model: str, family: str = "gpt_oss") -> float:
-    """Positive delta == candidate regressed vs base."""
+    """Positive delta == candidate regressed vs base.
+
+    ``_pass_at_1`` loads, evaluates, and FREES one model before returning, so
+    the base model is released before the candidate loads — the two 120B models
+    are never GPU-resident simultaneously.
+    """
     return _pass_at_1(base_model, family) - _pass_at_1(candidate_model, family)

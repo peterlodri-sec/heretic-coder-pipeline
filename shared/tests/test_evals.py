@@ -256,3 +256,108 @@ def test_swebench_resolve_rate_raises_on_harness_failure(tmp_path, monkeypatch):
             assert False, "expected RuntimeError"
         except RuntimeError as e:
             assert "boom" in str(e)
+
+
+# ---- OOM handling: sequential load + free -----------------------------------
+
+def _install_fake_lm_eval(monkeypatch, hflm_calls, empty_cache):
+    """Inject fake ``lm_eval`` + ``torch`` so the HFLM eval path runs GPU-free."""
+    import sys
+    import types
+
+    class FakeHFLM:
+        def __init__(self, **kwargs):
+            hflm_calls.append(kwargs)
+
+    fake_hf = types.ModuleType("lm_eval.models.huggingface")
+    fake_hf.HFLM = FakeHFLM
+    fake_models = types.ModuleType("lm_eval.models")
+    fake_lm = types.ModuleType("lm_eval")
+    fake_lm.simple_evaluate = lambda model, tasks, **kw: {
+        "results": {tasks[0]: {"pass@1,create_test": 0.75}}
+    }
+
+    fake_torch = types.ModuleType("torch")
+    fake_torch.cuda = types.SimpleNamespace(
+        is_available=lambda: True, empty_cache=empty_cache
+    )
+
+    monkeypatch.setitem(sys.modules, "lm_eval", fake_lm)
+    monkeypatch.setitem(sys.modules, "lm_eval.models", fake_models)
+    monkeypatch.setitem(sys.modules, "lm_eval.models.huggingface", fake_hf)
+    monkeypatch.setitem(sys.modules, "torch", fake_torch)
+
+
+def test_humaneval_pass_at_1_shards_across_gpus_and_frees(monkeypatch):
+    from shared.eval import humaneval as eval_humaneval
+
+    hflm_calls = []
+    empty_cache = MagicMock()
+    _install_fake_lm_eval(monkeypatch, hflm_calls, empty_cache)
+
+    score = eval_humaneval._pass_at_1("some/120b-model", family="qwen")
+
+    assert score == 0.75
+    # Model sharded across visible GPUs so a 120B does not OOM a single card.
+    assert hflm_calls[0]["parallelize"] is True
+    assert hflm_calls[0]["batch_size"] == "auto"
+    # Model freed (CUDA cache emptied) before the next _pass_at_1 loads.
+    empty_cache.assert_called()
+
+
+def test_humaneval_regression_never_holds_two_models_resident(monkeypatch):
+    """base then candidate: each _pass_at_1 must free before the next loads."""
+    from shared.eval import humaneval as eval_humaneval
+
+    events = []
+
+    def fake_pass_at_1(model, family="gpt_oss"):
+        events.append(("load", model))
+        events.append(("free", model))
+        return 0.5
+
+    with patch.object(eval_humaneval, "_pass_at_1", side_effect=fake_pass_at_1):
+        eval_humaneval.regression("base", "cand", family="qwen")
+
+    # candidate must not load until base has been freed.
+    assert events == [
+        ("load", "base"), ("free", "base"),
+        ("load", "cand"), ("free", "cand"),
+    ]
+
+
+def test_refusal_rate_frees_model_after_eval():
+    from shared.eval import refusal as eval_refusal
+    with patch("shared.eval.refusal.load_model", return_value=("m", "t")), \
+         patch("shared.eval.refusal.chat_generate", return_value=["ok"]), \
+         patch("shared.eval.refusal.free_model") as free:
+        eval_refusal.refusal_rate("model", ["p1"], family="qwen")
+    free.assert_called_once()
+
+
+def test_bfcl_accuracy_frees_model_after_eval():
+    from shared.eval import bfcl as eval_bfcl
+    with patch("shared.eval.bfcl.load_model", return_value=("m", "t")), \
+         patch("shared.eval.bfcl.chat_generate", return_value=["{}"]), \
+         patch("shared.eval.bfcl.free_model") as free:
+        eval_bfcl.accuracy("model", [{"prompt": "p", "expected": {}, "tools": None}])
+    free.assert_called_once()
+
+
+def test_swebench_generate_predictions_frees_model_before_harness(tmp_path, monkeypatch):
+    import sys
+    import types
+    from shared.eval import swebench as eval_swebench
+
+    fake_ds = types.ModuleType("datasets")
+    fake_ds.load_dataset = MagicMock(return_value=[
+        {"instance_id": "repo__issue-1", "problem_statement": "bug one"},
+    ])
+    monkeypatch.chdir(tmp_path)
+    with patch.dict(sys.modules, {"datasets": fake_ds}), \
+         patch("shared.eval.swebench.load_model", return_value=("m", "t")), \
+         patch("shared.eval.swebench.chat_generate", return_value=["diff --git a b"]), \
+         patch("shared.eval.swebench.free_model") as free:
+        eval_swebench.generate_predictions("model", "candidate")
+    # Model must be freed before the (GPU-free) Docker harness stage.
+    free.assert_called_once()

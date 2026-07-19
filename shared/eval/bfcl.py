@@ -9,7 +9,7 @@ against the gold call.
 import json
 import re
 
-from shared.eval._model import chat_generate, load_model
+from shared.eval._model import chat_generate, free_model, load_model
 
 # gpt-oss harmony tool call, roughly:
 #   <|channel|>commentary to=functions.NAME <|constrain|>json<|message|>{args}<|call|>
@@ -96,14 +96,20 @@ def accuracy(model_path, cases, family: str = "gpt_oss") -> float:
     if not cases:
         return 0.0
     model, tokenizer = load_model(model_path)
-    message_lists = [[{"role": "user", "content": c["prompt"]}] for c in cases]
-    tools_per_item = [c.get("tools") for c in cases]
-    completions = chat_generate(
-        model, tokenizer, message_lists,
-        max_new_tokens=256, tools_per_item=tools_per_item,
-    )
+    try:
+        message_lists = [[{"role": "user", "content": c["prompt"]}] for c in cases]
+        tools_per_item = [c.get("tools") for c in cases]
+        completions = chat_generate(
+            model, tokenizer, message_lists,
+            max_new_tokens=256, tools_per_item=tools_per_item,
+        )
+    finally:
+        # Free before the next eval loads its own model — 2xH200 cannot hold two
+        # 120B models at once. Drop local refs first, then reclaim GPU memory.
+        del model, tokenizer
+        free_model()
     hits = sum(
         1 for c, out in zip(cases, completions)
         if _matches(extract_tool_call(out, family), c["expected"])
-    )
+)
     return hits / len(cases)

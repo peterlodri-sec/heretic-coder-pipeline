@@ -27,6 +27,32 @@ def load_model(model_path):
     return model, tokenizer
 
 
+def free_model(*_objs):
+    """Reclaim accelerator memory between sequential large-model evals.
+
+    A single stage's eval pass loads one large model per benchmark in the SAME
+    process (refusal, bfcl, humaneval, swebench). Without an explicit free, each
+    freshly-loaded model's blocks stay pinned in torch's caching allocator, so a
+    second 120B (~240GB bf16) can't fit alongside the first on 2xH200 (282GB).
+
+    The CALLER must also stop referencing its model/tokenizer (``del`` them, or
+    let them fall out of scope) BEFORE calling this — Python passes by
+    reference, so this cannot unbind the caller's names. This runs a GC pass and
+    empties the CUDA cache. Import-safe: torch is imported lazily and guarded, so
+    it is a no-op in GPU-free / offline / unit-test environments.
+    """
+    import gc
+
+    gc.collect()
+    try:
+        import torch
+
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+    except Exception:
+        pass
+
+
 def chat_generate(
     model,
     tokenizer,
