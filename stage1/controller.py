@@ -76,8 +76,9 @@ def main() -> int:
             instance = vast_provision.provision(
                 vast,
                 # 120B 4-bit (~65GB) + activations needs margin -> H200 141GB.
-                # ~240GB bf16 export -> disk 600.
-                query="gpu_name=H200 disk_space>=600 rentable=true",
+                # ~240GB bf16 export -> disk 600. reliability>0.98 avoids flaky
+                # hosts (a deploy scp stalled 120s x3 on an unreliable box).
+                query="gpu_name=H200 disk_space>=600 reliability>0.98 rentable=true",
                 disk_gb=600,
                 interruptible=args.interruptible,
             )
