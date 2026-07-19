@@ -14,10 +14,9 @@ import study_metrics
 import verdict
 from enums import Stage
 from shared.enums import Verdict
-from shared.model_family import default_load_in_4bit
 from status_io import Status
 
-MODEL = os.environ.get("STAGE1_MODEL", "unsloth/gpt-oss-120b-unsloth-bnb-4bit")
+MODEL = os.environ.get("STAGE1_MODEL", "unsloth/gpt-oss-120b-BF16")
 FAMILY = os.environ.get("STAGE1_FAMILY", "gpt_oss")
 N_TRIALS = int(os.environ.get("STAGE1_N_TRIALS", "200"))
 STUDY_CHECKPOINT_DIR = "checkpoints"
@@ -26,9 +25,13 @@ TRIAL_INDEX = 0
 STATUS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "status.json")
 HERETIC_LOG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "heretic_run.log")
 HF_REPO_ID = "PeetPedro/gpt-oss-120b-heretic"
-# gpt-oss-120b bf16 (~240GB) won't fit 1x H200 — abliterate under bitsandbytes
-# 4-bit. Family-driven: gpt-oss -> bnb_4bit, dense qwen -> full precision (None).
-QUANTIZATION = "bnb_4bit" if default_load_in_4bit(FAMILY) else None
+# Heretic quantization is DECOUPLED from the training-stage load_in_4bit: for
+# gpt-oss we abliterate the BF16 source (heretic has no MXFP4 path; bf16 is the
+# only way its surgery reaches down_proj/experts) with quantization="none".
+# device_map/max_memory (2xH200 shard) live in config.toml. Falsy => heretic
+# default "none", no --quantization flag emitted. Override via STAGE1_QUANTIZATION.
+_q = os.environ.get("STAGE1_QUANTIZATION", "none").strip().lower()
+QUANTIZATION = None if _q in ("", "none") else _q
 WALL_CLOCK_CEILING_SECONDS = 24 * 60 * 60
 
 

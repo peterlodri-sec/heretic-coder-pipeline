@@ -107,21 +107,22 @@ def test_main_does_not_stop_when_provision_fails():
 def test_deploy_and_launch_ships_shared_and_stage_dir():
     inst = {"ssh_host": "h", "ssh_port": 22}
     with patch("controller.local_hf_token_path", return_value=None), \
-         patch("controller.ssh_utils.scp_to") as scp, \
+         patch("controller.ssh_utils.send_dir") as send, \
          patch("controller.ssh_utils.run_ssh"):
         controller.deploy_and_launch(inst, "model", 5)
-    dests = [c.args[3] for c in scp.call_args_list]  # remote_path arg
+    dests = [c.args[3] for c in send.call_args_list]  # remote_parent arg
     assert controller.REMOTE_PARENT in dests  # shared + stage1 both land under /root
-    assert scp.call_count >= 2
+    assert send.call_count >= 2  # tar-streamed, not scp -r
 
 
 def test_deploy_and_launch_ships_hf_token_and_enables_hf_transfer():
     inst = {"ssh_host": "h", "ssh_port": 22}
     with patch("controller.local_hf_token_path", return_value="/tmp/tok"), \
          patch("controller.ssh_utils.scp_to") as scp, \
+         patch("controller.ssh_utils.send_dir"), \
          patch("controller.ssh_utils.run_ssh") as run_ssh:
         controller.deploy_and_launch(inst, "model", 5)
-    token_dests = [c.args[3] for c in scp.call_args_list]
+    token_dests = [c.args[3] for c in scp.call_args_list]  # token still single-file scp
     assert "/root/.cache/huggingface/token" in token_dests
     launched = " ".join(str(c) for c in run_ssh.call_args_list)
     assert "HF_HUB_ENABLE_HF_TRANSFER=1" in launched
@@ -130,7 +131,7 @@ def test_deploy_and_launch_ships_hf_token_and_enables_hf_transfer():
 def test_deploy_threads_family_env():
     inst = {"ssh_host": "h", "ssh_port": 22}
     with patch("controller.local_hf_token_path", return_value=None), \
-         patch("controller.ssh_utils.scp_to"), patch("controller.ssh_utils.run_ssh") as run_ssh:
+         patch("controller.ssh_utils.send_dir"), patch("controller.ssh_utils.run_ssh") as run_ssh:
         controller.deploy_and_launch(inst, "m", 5, "gpt_oss")
     launched = " ".join(str(c) for c in run_ssh.call_args_list)
     assert "STAGE1_FAMILY='gpt_oss'" in launched
@@ -150,4 +151,5 @@ def test_provision_uses_interruptible_flag_and_bigger_disk():
          patch("controller.poll_until_done", return_value=_done(Verdict.PASS)):
         controller.main()
     assert prov.call_args.kwargs["interruptible"] is True
-    assert prov.call_args.kwargs["disk_gb"] == 600
+    assert prov.call_args.kwargs["disk_gb"] == 650  # bf16 weights + export
+    assert "num_gpus=2" in prov.call_args.kwargs["query"]  # 2xH200 for bf16 shard

@@ -1,0 +1,12 @@
+# heretic auto-reads THIS file (hardcoded name "config.toml") from its launch cwd
+# (/root/stage1/remote). CLI flags in run_stage1.py override per-key; these are the
+# loading knobs we don't pass on the CLI.
+#
+# gpt-oss-120b abliterated in BF16 across 2xH200 (device_map=auto shards ~240GB;
+# heretic has no MXFP4 path, so bf16 is required to abliterate down_proj/experts).
+# quantization=none (default, listed for explicitness) — do NOT bnb-4bit the bf16
+# source. max_memory pins weights to the 2 GPUs (steady-state on-GPU, no CPU spill
+# during the 200-trial forward passes); cpu line only cushions the load transient.
+device_map = "auto"
+max_memory = { "0" = "138GB", "1" = "138GB", "cpu" = "1500GB" }
+quantization = "none"

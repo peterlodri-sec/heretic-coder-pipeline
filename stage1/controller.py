@@ -52,7 +52,7 @@ def deploy_and_launch(instance: dict, model: str, n_trials: int, family: str = "
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--model", default="unsloth/gpt-oss-120b-unsloth-bnb-4bit")
+    parser.add_argument("--model", default="unsloth/gpt-oss-120b-BF16")  # bf16: heretic has no MXFP4 path
     parser.add_argument("--family", default="gpt_oss")  # drives heretic bnb_4bit quant
     parser.add_argument("--n-trials", type=int, default=200)
     # Heretic is short; a spot preempt mid-abliteration wastes the whole run, so
@@ -75,11 +75,13 @@ def main() -> int:
         with provision_lock():
             instance = vast_provision.provision(
                 vast,
-                # 120B 4-bit (~65GB) + activations needs margin -> H200 141GB.
-                # ~240GB bf16 export -> disk 600. reliability>0.98 avoids flaky
-                # hosts (a deploy scp stalled 120s x3 on an unreliable box).
-                query="gpu_name=H200 disk_space>=600 reliability>0.98 rentable=true",
-                disk_gb=600,
+                # gpt-oss-120b abliterated in BF16 (heretic has no MXFP4 path;
+                # bf16 guarantees o_proj+down_proj surgery). ~240GB weights won't
+                # fit 1 H200 -> 2xH200 (282GB), device_map=auto shards them.
+                # disk ~650: 240GB bf16 weights + ~240GB export + env (~480GB peak).
+                # reliability>0.98 avoids flaky deploy hosts.
+                query="gpu_name=H200 num_gpus=2 disk_space>=600 reliability>0.98 rentable=true",
+                disk_gb=650,
                 interruptible=args.interruptible,
             )
         host, port = deploy_and_launch(instance, args.model, args.n_trials, args.family)
