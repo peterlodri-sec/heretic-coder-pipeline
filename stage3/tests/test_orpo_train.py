@@ -9,6 +9,7 @@ def _fakes():
     unsloth.FastLanguageModel = MagicMock()
     unsloth.FastLanguageModel.from_pretrained.return_value = ("model", "tok")
     unsloth.FastLanguageModel.get_peft_model.return_value = "peft_model"
+    unsloth.PatchDPOTrainer = MagicMock()
     trl = types.ModuleType("trl")
     trl.ORPOTrainer = MagicMock()
     trl.ORPOConfig = MagicMock()
@@ -58,3 +59,17 @@ def test_orpoconfig_uses_modern_kwargs():
     assert cfg["max_length"] == 8192
     assert cfg["max_prompt_length"] == 2048
     assert cfg["bf16"] is True
+    assert cfg["warmup_ratio"] == 0.03
+
+
+def test_patch_dpo_trainer_called_before_trainer_built():
+    # Unsloth's DPO-family patch must run, else grad-checkpoint mispatches -> OOM.
+    fakes, _ = _run_train()
+    fakes["unsloth"].PatchDPOTrainer.assert_called_once()
+
+
+def test_lora_rank_matches_stage2_anti_regression_fix():
+    fakes, _ = _run_train()
+    peft_kwargs = fakes["unsloth"].FastLanguageModel.get_peft_model.call_args.kwargs
+    assert peft_kwargs["r"] == 32
+    assert peft_kwargs["lora_alpha"] == 64

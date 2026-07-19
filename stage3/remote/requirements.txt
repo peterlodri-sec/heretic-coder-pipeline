@@ -1,6 +1,6 @@
 # stage3 ORPO deps — same verified stack as stage2 (trl 0.24 provides the
-# conversational ORPOTrainer). setup.sh installs torch==2.6.0 +
-# xformers==0.0.29.post3 from the cu124 index BEFORE this file. Do NOT float
+# conversational ORPOTrainer). setup.sh installs torch==2.7.1 +
+# xformers==0.0.31.post1 from the cu126 index BEFORE this file. Do NOT float
 # transformers; keep huggingface_hub on 0.35.x. Bump deliberately.
 unsloth==2026.7.3
 unsloth_zoo==2026.7.3
