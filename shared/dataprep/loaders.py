@@ -28,6 +28,17 @@ def load_swebench_rows():
     return load_dataset("princeton-nlp/SWE-bench_Verified", split="test")
 
 
+def load_verifiable_coding_rows():
+    # Coding problems that ship WITH executable tests — the substrate for stage4
+    # RFT filtering + stage5 RLVR rewards (reward = fraction of tests passing).
+    # cols (target schema): prompt (str), tests (str), entry_point (str, optional).
+    # NOTE: exact source(s) finalize from research — MBPP+/HumanEval+/
+    # LiveCodeBench-style verifiable subsets, or SWE-Gym repo tasks with
+    # FAIL_TO_PASS. Heavy `load_dataset` stays function-local.
+    from datasets import load_dataset
+    return load_dataset("evalplus/mbppplus", split="test")
+
+
 def load_traces(trace_dir):
     import glob
     import json
