@@ -59,25 +59,24 @@ def _sources():
 
 
 def _evaluate(check_swebench: bool) -> dict:
-    from shared.eval import bfcl as eval_bfcl
-    from shared.eval import humaneval as eval_humaneval
-    from shared.eval import refusal as eval_refusal
-    from shared.eval import swebench as eval_swebench
-    from shared.eval import datasets as eval_datasets
-
-    refusal_prompts = eval_datasets.load_refusal_prompts()
-    bfcl_cases = eval_datasets.load_bfcl_cases()
-
-    metrics = {
-        "refusal_rate": eval_refusal.refusal_rate(MERGED_OUT, refusal_prompts),
-        "bfcl_accuracy": eval_bfcl.accuracy(MERGED_OUT, bfcl_cases),
-        "humaneval_delta": eval_humaneval.regression(MODEL_SOURCE, MERGED_OUT),
-        "swebench_resolve": (
-            eval_swebench.resolve_rate(MERGED_OUT, model_name="candidate", limit=100)
-            if check_swebench else 1.0
-        ),
-    }
-    return metrics
+    import subprocess
+    # Isolate evals from the training process (unsloth monkey-patches transformers,
+    # which breaks plain model loading in eval).
+    repo_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # -> /root
+    stage_remote = os.path.dirname(os.path.abspath(__file__))  # where MERGED_OUT is relative to
+    env = {**os.environ, "PYTHONPATH": repo_root, "HF_ALLOW_CODE_EVAL": "1"}
+    proc = subprocess.run(
+        [sys.executable, "-m", "shared.eval.run_evals", MERGED_OUT, MODEL_SOURCE,
+         "1" if check_swebench else "0"],
+        capture_output=True, text=True, cwd=stage_remote, env=env,
+    )
+    if proc.returncode != 0:
+        raise RuntimeError(f"eval subprocess failed: {proc.stderr[-800:]}")
+    lines = [ln for ln in proc.stdout.splitlines() if ln.startswith("METRICS_JSON ")]
+    if not lines:
+        raise RuntimeError(f"eval produced no metrics: {proc.stdout[-800:]}{proc.stderr[-400:]}")
+    import json as _json
+    return _json.loads(lines[-1][len("METRICS_JSON "):])
 
 
 def publish(status: Status) -> None:
