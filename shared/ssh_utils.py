@@ -1,3 +1,5 @@
+import os
+import shlex
 import subprocess
 import time
 
@@ -111,6 +113,30 @@ def scp_to(host: str, port: int, local_path: str, remote_path: str,
         args.append("-r")
     args += [local_path, f"{host}:{remote_path}"]
     _run_scp(args, f"scp {local_path} -> {host}:{remote_path}", timeout, retries, backoff)
+
+
+def send_dir(host: str, port: int, local_dir: str, remote_parent: str,
+             timeout: int = 300, retries: int = 3, backoff: int = 10) -> None:
+    """Ship a directory as ONE gzipped tar stream over a single SSH connection.
+
+    `scp -r` of a directory does per-file SFTP round-trips; over a high-latency
+    link a few dozen small files (esp. with __pycache__) blow past the wall-clock
+    timeout even though the payload is tiny. A single `tar | ssh 'tar x'` stream is
+    latency-insensitive. Excludes __pycache__/*.pyc so stale bytecode isn't shipped.
+    """
+    parent = os.path.dirname(os.path.abspath(local_dir))
+    name = os.path.basename(os.path.normpath(local_dir))
+    remote = f"mkdir -p {shlex.quote(remote_parent)} && tar xzf - -C {shlex.quote(remote_parent)}"
+    pipeline = (
+        "set -o pipefail; "
+        f"tar czf - --exclude='__pycache__' --exclude='*.pyc' "
+        f"-C {shlex.quote(parent)} {shlex.quote(name)} | "
+        f"ssh -p {port} -o BatchMode=yes -o StrictHostKeyChecking=accept-new "
+        f"{shlex.quote(host)} {shlex.quote(remote)}"
+    )
+    _run_scp(["bash", "-c", pipeline],
+             f"tar-send {local_dir} -> {host}:{remote_parent}",
+             timeout, retries, backoff)
 
 
 def scp_from(host: str, port: int, remote_path: str, local_path: str, timeout: int = 300,

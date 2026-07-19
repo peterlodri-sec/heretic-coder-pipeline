@@ -37,8 +37,8 @@ def deploy_and_launch(instance: dict, model: str, n_trials: int, family: str = "
     if token:
         ssh_utils.run_ssh(host, port, "mkdir -p /root/.cache/huggingface")
         ssh_utils.scp_to(host, port, token, "/root/.cache/huggingface/token")
-    ssh_utils.scp_to(host, port, SHARED_DIR, REMOTE_PARENT, recursive=True)
-    ssh_utils.scp_to(host, port, STAGE1_DIR, REMOTE_PARENT, recursive=True)
+    ssh_utils.send_dir(host, port, SHARED_DIR, REMOTE_PARENT)
+    ssh_utils.send_dir(host, port, STAGE1_DIR, REMOTE_PARENT)
     ssh_utils.run_ssh(host, port, f"cd {REMOTE_ROOT}/remote && bash setup.sh",
                       timeout=SETUP_TIMEOUT_SECONDS)
     ssh_utils.run_ssh(

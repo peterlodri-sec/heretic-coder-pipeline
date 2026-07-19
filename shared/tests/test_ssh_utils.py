@@ -3,7 +3,7 @@ from unittest.mock import patch
 
 import pytest
 
-from shared.ssh_utils import SSHError, run_ssh, scp_from, scp_to, wait_for_ssh
+from shared.ssh_utils import SSHError, run_ssh, scp_from, scp_to, send_dir, wait_for_ssh
 
 
 def _completed(returncode, stdout="", stderr=""):
@@ -178,3 +178,23 @@ def test_scp_from_retries_on_transient_failure_then_succeeds():
          patch("shared.ssh_utils.time.sleep") as mock_sleep:
         scp_from("root@host", 1234, "/remote/file", "/local/file", retries=3, backoff=5)
     mock_sleep.assert_called_once_with(5)
+
+
+def test_send_dir_uses_single_tar_stream_over_ssh():
+    # dir transfer must be ONE tar|ssh pipeline (latency-robust), not scp -r,
+    # and must exclude __pycache__.
+    with patch("shared.ssh_utils.subprocess.run", return_value=_completed(0)) as mock_run:
+        send_dir("root@h", 2222, "/local/shared", "/root")
+    argv = mock_run.call_args.args[0]
+    assert argv[0] == "bash" and argv[1] == "-c"
+    cmd = argv[2]
+    assert "tar czf -" in cmd and "| ssh" in cmd and "tar xzf -" in cmd
+    assert "__pycache__" in cmd and "set -o pipefail" in cmd
+    assert "shared" in cmd and "-p 2222" in cmd
+
+
+def test_send_dir_retries_on_command_timeout(monkeypatch):
+    responses = [subprocess.TimeoutExpired(cmd="bash", timeout=300), _completed(0)]
+    with patch("shared.ssh_utils.subprocess.run", side_effect=responses), \
+         patch("shared.ssh_utils.time.sleep"):
+        send_dir("root@h", 2222, "/local/shared", "/root")  # succeeds on 2nd try
