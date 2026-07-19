@@ -15,6 +15,13 @@ def _is_tool_output(m: dict) -> bool:
     return m.get("role") == "tool"
 
 
+def tool_span_tokens(messages: list[dict]) -> int:
+    """Whitespace-token proxy of total tool-output content — for compression stats
+    (rough, tokenizer-free; good enough for a ratio on the monitor)."""
+    return sum(len((m.get("content") or "").split())
+               for m in messages if _is_tool_output(m))
+
+
 def compress_tool_spans(messages: list[dict], *, model: str = KOMPRESS_MODEL) -> list[dict]:
     """Return a NEW list; compress only tool-output content, everything else
     passes through unchanged (same object, byte-identical content). Never mutates

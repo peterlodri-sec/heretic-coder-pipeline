@@ -117,3 +117,23 @@ def test_build_kompress_enabled_applies_compress_tool_spans(tmp_path, monkeypatc
     assert len(calls) == 2
     msgs = json.loads(out.read_text().splitlines()[0])["messages"]
     assert msgs[1]["content"] == "C:file1\nfile2\n"
+
+
+def test_build_kompress_prints_stats_summary(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("KOMPRESS_COMPRESS", "1")
+    import dataprep.pipeline as pipeline_mod
+
+    def halve(messages):  # drop the back half of each tool span -> measurable saved%
+        out = []
+        for m in messages:
+            if m.get("role") == "tool":
+                w = m["content"].split()
+                out.append(dict(m, content=" ".join(w[: len(w) // 2])))
+            else:
+                out.append(m)
+        return out
+
+    monkeypatch.setattr(pipeline_mod, "compress_tool_spans", halve)
+    build([FakeSource("agent", [_tool_output_ex()])], str(tmp_path / "t.jsonl"), family="qwen")
+    out = capsys.readouterr().out
+    assert "KOMPRESS spans=" in out and "tokens_in=" in out and "saved=" in out
