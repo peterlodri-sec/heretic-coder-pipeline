@@ -1,146 +1,158 @@
-# qwen2.5-coder-32b-instruct → heretic → SFT → ORPO
+# heretic → SFT → RFT → RLVR — an open uncensored SWE coding-agent pipeline
 
-A three-stage training pipeline that turns **Qwen/Qwen2.5-Coder-32B-Instruct**
-into a top-tier local SWE coding agent: uncensored, tool-call-accurate, minimal
-capability degradation. Each stage is a self-contained [Vast.ai](https://vast.ai)
-GPU harness; a top-level orchestrator chains them.
+A reproducible post-training pipeline that turns an open-weight base model into a
+strong autonomous software-engineering agent: uncensored (refusal directions
+abliterated), tool-call-accurate, with coding ability recovered through
+execution-feedback RL. Each stage is a self-contained GPU harness; a top-level
+orchestrator chains them.
 
-> **Status: harness only.** Every stage is built and unit-tested on CPU (heavy
-> training/eval libs are mocked). No stage has been run on a GPU yet. See
-> [Before a real run](#before-a-real-run).
+**Frontier target:** `openai/gpt-oss-120b` (117B total / 5.1B active MoE, harmony
+format, Apache-2.0). `Qwen2.5-Coder-32B` is the cheap validation baseline (the
+whole harness is model-family-aware and runs either).
+
+> **Status:** harness complete and verified — 301 unit tests, GPU-free imports,
+> per-stage isolation. The gpt-oss-120b frontier run is configured and pending;
+> the Qwen2.5-Coder-32B baseline has been run through abliteration + SFT (surfacing
+> the recipe lessons now folded into the plan). Heavy training/eval libs are
+> lazy-imported and mocked in tests — see [Before a real run](#before-a-real-run).
 
 ## Pipeline
 
 ```
-Qwen2.5-Coder-32B-Instruct (base)
+base model (gpt-oss-120b / Qwen2.5-Coder-32B)
         │
         ▼
-   [1] Heretic          weight surgery — abliterate refusal directions
-        │  → PeetPedro/qwen2.5-coder-32b-instruct-heretic
+   [1] Heretic       weight surgery — abliterate refusal directions (bnb_4bit)
+        │
         ▼
-   [2] Unsloth SFT      tool calling + SWE trajectories (LoRA)
-        │  → …-heretic-sft
+   [2] SFT           Unsloth LoRA — agentic SWE + tool-calling data (harmony/ChatML)
+        │
         ▼
-   [3] ORPO             preference pairs — tool accuracy + code quality
-        │  → …-heretic-orpo   (safetensors + q4_k_m GGUF)
+   [3] RFT loop      sample N → exec-verify against tests → SFT on passers, ×k
+        │
         ▼
-   Final model
+   [4] RLVR          execution-feedback RL (TRL GRPO + GSPO); reward = tests pass
+        │
+        ▼
+   final model  ──▶ serve: OpenHands + self-repair + best-of-N
 ```
 
-Design rationale and full detail: [`plan.md`](plan.md) and the specs/plans under
+ORPO (`stage3/`) is kept as a budget preference-tuning fallback (swap in for the
+RFT→RLVR tail when no verifier/exec-sandbox is available). Design detail:
 [`docs/superpowers/`](docs/superpowers/).
 
-| Stage | Dir | Method | Input model | Output repo |
-|---|---|---|---|---|
-| 1 | `stage1/` | Heretic abliteration (weight surgery, no training) | base | `…-heretic` |
-| 2 | `stage2/` | Unsloth SFT (LoRA, tool-call + SWE data) | `…-heretic` | `…-heretic-sft` |
-| 3 | `stage3/` | ORPO preference tuning (`trl.ORPOTrainer`) | `…-heretic-sft` | `…-heretic-orpo` |
+| Stage | Dir | Method | GPU |
+|---|---|---|---|
+| 1 | `stage1/` | Heretic abliteration (weight surgery, no gradients) | 1×H200 |
+| 2 | `stage2/` | Unsloth SFT (LoRA) | 1×H200 |
+| 3 | `stage4/` | RFT rejection-sampling loop (vLLM + exec sandbox) | 1×H200 |
+| 4 | `stage5/` | RLVR — TRL GRPO + **GSPO**, terminal | 2–4×H200 |
+| (fallback) | `stage3/` | ORPO preference tuning | 1×H200 |
 
-Each stage's `controller.py` runs locally: it provisions an A100 on Vast.ai,
-ships `shared/` + its stage dir to the box, runs `setup.sh`, launches the remote
-job in `tmux`, polls `status.json` over SSH, pulls the run log, and **always
-stops the instance** (a `try/finally` guards against billing leaks). It exits `0`
-iff the stage's verdict is `PASS`.
+Each stage's `controller.py` runs locally: provisions a GPU, ships `shared/` + the
+stage dir, runs `setup.sh`, launches the remote job in `tmux`, polls `status.json`
+over SSH, pulls the log, and **always stops the instance** (`try/finally` guards
+against billing leaks). Exit `0` iff the stage verdict is `PASS`.
+
+### Key engineering decisions
+- **GSPO** (`importance_sampling_level="sequence"`, β=0) — required for the MoE
+  base; token-level GRPO collapses the experts' routers (arXiv 2507.18071).
+- **Hardened exec sandbox** (`shared/exec_sandbox.py`) — untrusted model code runs
+  resource-capped in a throwaway process group; tests are streamed via stdin (no
+  test file on disk to rewrite); hidden-holdout tests penalize reward hacking.
+- **Model-family-aware** (`shared/model_family.py`) — harmony (gpt-oss) vs ChatML
+  (Qwen) for masking delimiters, dataprep tool-call encoding, and eval parsing.
+  Both paths kept and regression-locked.
+- **Cost-aware** — interruptible instances + checkpointing, RFT-then-distill as the
+  default RLVR mode, KV-cache kit (prefix caching + FP8 KV) for rollouts.
 
 ## Verdict gate
 
-Stages 2 and 3 gate on the same capability check (`shared/verdict.py`,
-`CAPABILITY_CHECKS`) computed on the freshly trained model:
+Each trained stage gates on a capability check (`shared/verdict.py`):
 
 | Metric | Threshold | Meaning |
 |---|---|---|
 | `refusal_rate` | `< 0.10` | abliteration held (no re-introduced refusals) |
-| `bfcl_accuracy` | `> 0.85` | tool-call correctness |
+| `bfcl_accuracy` | `> 0.85` | tool-call correctness *(threshold under review — exact-match harness)* |
 | `humaneval_delta` | `< 0.03` | code-gen regression vs the input model |
 | `swebench_resolve` | `> 0.40` | SWE-bench Verified resolve rate |
 
-SWE-bench is heavy (agentic harness); pass `--no-swebench` to a stage controller
-to skip it. On `PASS`, the stage exports `merged_16bit` safetensors + a `q4_k_m`
-GGUF and publishes to Hugging Face.
+Evals run in a **subprocess isolated** from Unsloth's monkey-patches. SWE-bench is
+heavy; `CHEAP_EVAL=1` runs a reduced subset during dev, full at the final verdict.
 
 ## Layout
 
 ```
-shared/            # infra reused by every stage
-  ssh_utils.py       SSH/SCP with split connect/command timeouts + retries
-  vast_provision.py  Vast.ai provisioning (find/reuse/rent, no double-rent)
-  vast_ops.py        api-key load + fcntl provision lock
-  enums.py           Verdict (pass/fail/error)
-  status.py          JsonStatusMixin (atomic status.json, enum-coercing)
-  poll.py            poll_until_done (status-class parameterized)
-  verdict.py         VerdictResult + compute_verdict + CAPABILITY_CHECKS
-  eval/              refusal / bfcl / humaneval / swebench evaluators
-  export.py          merged_16bit + q4_k_m GGUF
-  dataprep/          TrainingExample, Hermes tool blocks, contamination,
-                     negatives, DataSource ABC, raw dataset loaders
-stage1/  stage2/  stage3/   # per-stage controller + status/enums/verdict +
-                            #   dataprep + remote/ (setup.sh, requirements.txt,
-                            #   run_stageN.py, trainer, fixtures)
-pipeline/          # top-level orchestrator (chains the three controllers)
-docs/superpowers/  # design specs + implementation plans
+shared/
+  model_family.py    harmony/ChatML family knobs (delimiters, load_in_4bit)
+  harmony.py         gpt-oss final-channel extraction
+  train_common.py    typed LoraSpec + load_lora_model (shared by all trainers)
+  exec_sandbox.py    hardened runner for untrusted model code
+  eval/              refusal / bfcl / humaneval / swebench (family-aware)
+  dataprep/          family-aware tool-call encoding, contamination filtering
+  ssh_utils / vast_provision / vast_ops / poll / status / verdict / export
+stage1/ stage2/ stage3/ stage4/ stage5/   per-stage controller + remote/
+pipeline/          top-level orchestrator + config
+docs/superpowers/  design specs + implementation plans
 ```
-
-Stages 2 and 3 build their training data from pluggable sources (SWE-bench
-Verified, BFCL, ToolACE, Magicoder, your own crabcc agent traces), normalized to
-one Hermes tool-call schema, RLHF-contamination-filtered. Stage 3 additionally
-synthesizes `rejected` completions (wrong-tool / malformed-args /
-hallucinated-output / refusal) to form ORPO preference pairs.
 
 ## Running
 
-**Full pipeline** (runs all three stages in order; each stage's output HF repo
-feeds the next stage's `--model`; stops if any stage's verdict fails):
-
 ```bash
-python -m pipeline.runner
-```
+python -m pipeline.runner                      # full chain, stops on any fail
 
-**A single stage:**
-
-```bash
-python stage1/controller.py --model Qwen/Qwen2.5-Coder-32B-Instruct
-python stage2/controller.py --model PeetPedro/qwen2.5-coder-32b-instruct-heretic --no-swebench
-python stage3/controller.py --model PeetPedro/qwen2.5-coder-32b-instruct-heretic-sft --epochs 1
+# single stage (family + cost flags):
+python stage1/controller.py --model openai/gpt-oss-120b --family gpt_oss
+python stage2/controller.py --model PeetPedro/gpt-oss-120b-heretic --interruptible
+python stage4/controller.py --rounds 2 --num-candidates 8
+python stage5/controller.py --mode distill     # distill | offline-kto | live-rl
 ```
 
 ### Prerequisites
-
-- **Vast.ai API key** at `~/.config/vastai/vast_api_key`, with account balance
-  (the controllers rent A100 80GB instances).
-- **Hugging Face auth** with write access to the target repos (the remote job
-  publishes via `huggingface_hub`).
-- **Local venv** with `vastai` (controllers) — plus `pytest` to run the tests.
-  The remote box installs its own heavy stack (unsloth/trl/transformers/…) via
-  each stage's `remote/setup.sh`.
+- **GPU provider** — a Vast.ai API key at `~/.config/vastai/vast_api_key` with
+  balance (the provisioning backend is pluggable; any SSH-accessible host works).
+- **Hugging Face auth** with write access to the output repos.
+- **Local venv** with `vastai` + `pytest`. The remote box installs its own heavy
+  stack via each stage's `remote/setup.sh`.
 
 ## Testing
 
-Every stage is unit-tested on CPU; heavy libs are lazy-imported and mocked. Run
-**each stage/package in its own pytest process** — stage1/2/3 share bare module
-names (`controller`, `enums`, `status_io`, `verdict`) and would shadow each other
-in one interpreter:
+Run **each stage/package in its own pytest process** — the stages share bare module
+names and would shadow each other in one interpreter:
 
 ```bash
-pytest shared/tests -q
-pytest stage1/tests -q
-pytest stage2/tests -q
-pytest stage3/tests -q
-pytest pipeline/tests -q
+for g in shared pipeline stage1 stage2 stage3 stage4 stage5; do pytest $g -q; done
 ```
+
+## Models (Hugging Face)
+
+Validation baseline (`Qwen2.5-Coder-32B`), under [`PeetPedro`](https://huggingface.co/PeetPedro):
+`…/qwen2.5-coder-32b-instruct-heretic` (abliterated) · `…-heretic-sft`.
+Frontier (`gpt-oss-120b`) repos are configured (`PeetPedro/gpt-oss-120b-heretic{,-sft,-rft,-rlvr}`) and publish once the run completes.
 
 ## Before a real run
 
-This repo is complete as a harness but has not been GPU-validated. Before a real
-run, swap in real inputs:
+Harness-complete but not yet GPU-validated end-to-end on gpt-oss. Confirm on-box:
+- **Sandbox network isolation** — the subprocess backend caps resources but does
+  NOT block egress; wire `unshare -n` / nsjail / docker before untrusted RLVR.
+- **KV-cache passthrough** — confirm the GRPOConfig args for prefix-cache / FP8 KV
+  on the pinned TRL.
+- **Harmony on-box** — verify gpt-oss chat-template rendering + the eval
+  final-channel parse on a real generation.
+- **BFCL threshold** — the `0.85` floor vs the exact-match matcher is flagged for
+  review (see `shared/verdict.py`).
+- **Eval fixtures / dataset access / requirements** — swap placeholders, confirm HF
+  dataset + repo access, dry-run the pinned requirements as a set.
 
-- **Eval fixtures** — `stageN/remote/refusal_prompts.txt` and `bfcl_cases.jsonl`
-  ship as small benign placeholders. Replace with the real refusal-eval prompts
-  and BFCL cases.
-- **Requirements pins** — `stageN/remote/requirements.txt` pins are set but not
-  resolver-verified offline; run `pip install --dry-run -r` on the target image
-  and reconcile as a set if needed.
-- **Datasets & repos** — confirm the HF datasets (SWE-bench Verified, BFCL,
-  ToolACE, Magicoder) and your output repos are accessible with your token, and
-  point the crabcc trace source at your session logs.
-- **SWE-bench** — the SWE-bench eval shells out to its harness and is slow/heavy;
-  keep it behind `--no-swebench` for quick iterations.
+## Acknowledgements
+
+Built on [heretic-llm](https://github.com/p-e-w/heretic), Unsloth, TRL, vLLM, and
+the SWE-Gym / OpenHands ecosystem. GSPO (arXiv 2507.18071), SWE-RL (arXiv 2502.18449).
+
+## License
+
+[Apache-2.0](LICENSE) — matches the gpt-oss / Qwen base weights.
+
+---
+*Research/engineering artifact. Any abliterated weights produced have safety
+guardrails removed; use responsibly and only where you are authorized to.*
