@@ -17,8 +17,10 @@ def train(model_source: str, data_path: str, out_dir: str,
         model_name=model_source, max_seq_length=MAX_SEQ_LEN,
         load_in_4bit=False, dtype=None,
     )
+    # Gentler LoRA (r=32/alpha=64) to avoid over-writing the base model's coding
+    # ability — the r=64/lr=2e-4 recipe caused a ~19.5% HumanEval regression.
     model = FastLanguageModel.get_peft_model(
-        model, r=64, lora_alpha=128, lora_dropout=0.0,
+        model, r=32, lora_alpha=64, lora_dropout=0.0,
         target_modules=LORA_TARGETS,
         use_gradient_checkpointing="unsloth", random_state=42,
     )
@@ -36,7 +38,7 @@ def train(model_source: str, data_path: str, out_dir: str,
             dataset_text_field="text", max_length=MAX_SEQ_LEN, packing=False,
             per_device_train_batch_size=2, gradient_accumulation_steps=8,
             warmup_ratio=0.03, num_train_epochs=num_epochs, max_steps=max_steps,
-            learning_rate=2e-4, bf16=True, lr_scheduler_type="cosine",
+            learning_rate=5e-5, bf16=True, lr_scheduler_type="cosine",
             optim="adamw_8bit", logging_steps=10, output_dir=out_dir,
         ),
     )
