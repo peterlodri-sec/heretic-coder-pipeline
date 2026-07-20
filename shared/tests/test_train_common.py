@@ -2,7 +2,17 @@ import sys
 import types
 from unittest.mock import MagicMock
 
-from shared.train_common import LoraSpec, LORA_TARGETS, load_lora_model
+from shared.train_common import (
+    LoraSpec, LORA_TARGETS, load_lora_model, HIGH_RANK_RSLORA,
+)
+
+
+def test_high_rank_rslora_preset():
+    # Research-recommended: r=64/a=128 + rsLoRA (fixes the plain-LoRA r>=64 collapse
+    # that forced the r=32 default). Preset, not the default.
+    assert HIGH_RANK_RSLORA.r == 64 and HIGH_RANK_RSLORA.alpha == 128
+    assert HIGH_RANK_RSLORA.use_rslora is True
+    assert LoraSpec().r == 32  # default stays conservative
 
 
 def test_lora_spec_defaults_are_the_anti_regression_setting():

@@ -12,6 +12,12 @@ MAX_SEQ_LEN = 16384
 # default, which BFD requires. Off-switch: STAGE2_PACKING=0.
 PACKING = os.environ.get("STAGE2_PACKING", "1") != "0"
 PACKING_STRATEGY = "bfd"
+# NEFTune: add Uniform noise to embeddings during the forward pass — cheap
+# regularizer, orthogonal to packing/masking/rsLoRA. Research suggests ~5 for a
+# 32B. OFF by default: its gains are on instruction/agentic diversity, and for a
+# precision-sensitive coder it could trade HumanEval for chattiness, so it stays
+# an opt-in experiment (STAGE2_NEFTUNE=5). 0 disables it entirely.
+NEFTUNE_ALPHA = int(os.environ.get("STAGE2_NEFTUNE", "0"))
 
 
 def train(model_source: str, data_path: str, out_dir: str,
@@ -44,6 +50,7 @@ def train(model_source: str, data_path: str, out_dir: str,
         args=SFTConfig(
             dataset_text_field="text", max_length=MAX_SEQ_LEN,
             packing=PACKING, packing_strategy=PACKING_STRATEGY,
+            neftune_noise_alpha=NEFTUNE_ALPHA or None,
             per_device_train_batch_size=2, gradient_accumulation_steps=8,
             warmup_ratio=0.03, num_train_epochs=num_epochs, max_steps=max_steps,
             learning_rate=5e-5, bf16=True, lr_scheduler_type="cosine",

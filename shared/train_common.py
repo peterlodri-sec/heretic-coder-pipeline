@@ -25,6 +25,14 @@ class LoraSpec:
     use_rslora: bool = False
 
 
+# Research-recommended high-capacity SFT config (deep-research brief, 2026): the
+# earlier r=64 -> ~19.5% HumanEval regression was plain-LoRA GRADIENT COLLAPSE at
+# r>=64 (alpha/r shrinks the update toward zero), which rsLoRA (alpha/sqrt(r))
+# fixes directly. r=64/alpha=128 + rsLoRA is the recommended high-rank config —
+# validate with an r={32,64,128} sweep before promoting it over the r=32 default.
+HIGH_RANK_RSLORA = LoraSpec(r=64, alpha=128, use_rslora=True)
+
+
 def load_lora_model(model_source: str, *, max_seq_len: int, load_in_4bit: bool,
                     lora: LoraSpec = LoraSpec(), full_finetuning: bool = False):
     """Load base weights + attach the LoRA adapter. Returns (model, tokenizer).

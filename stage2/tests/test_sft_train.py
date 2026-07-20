@@ -95,6 +95,18 @@ def test_packing_off_switch(monkeypatch):
     assert cfg["packing"] is False
 
 
+def test_neftune_off_by_default():
+    # Precision-sensitive coder: NEFTune stays opt-in (None == disabled in TRL).
+    fakes, _ = _run_train()
+    assert fakes["trl"].SFTConfig.call_args.kwargs["neftune_noise_alpha"] is None
+
+
+def test_neftune_env_knob(monkeypatch):
+    monkeypatch.setenv("STAGE2_NEFTUNE", "5")
+    fakes, _ = _run_train()
+    assert fakes["trl"].SFTConfig.call_args.kwargs["neftune_noise_alpha"] == 5
+
+
 def test_response_only_masking_applied():
     fakes, _ = _run_train()
     call = fakes["unsloth.chat_templates"].train_on_responses_only.call_args
