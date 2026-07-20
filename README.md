@@ -10,11 +10,13 @@ orchestrator chains them.
 format, Apache-2.0). `Qwen2.5-Coder-32B` is the cheap validation baseline (the
 whole harness is model-family-aware and runs either).
 
-> **Status:** harness complete and verified — 301 unit tests, GPU-free imports,
-> per-stage isolation. The gpt-oss-120b frontier run is configured and pending;
-> the Qwen2.5-Coder-32B baseline has been run through abliteration + SFT (surfacing
-> the recipe lessons now folded into the plan). Heavy training/eval libs are
-> lazy-imported and mocked in tests — see [Before a real run](#before-a-real-run).
+> **Status:** harness complete and verified — 300+ unit tests, GPU-free imports,
+> per-stage isolation. The **gpt-oss-120b Stage-1 abliteration is running** on
+> 2×H200 (verified live to abliterate the fused MoE experts, not just `o_proj` —
+> see the fix below). The Qwen2.5-Coder-32B baseline is **shipped** through
+> abliteration + SFT (`PeetPedro/qwen2.5-coder-32b-instruct-heretic-sft`). Heavy
+> training/eval libs are lazy-imported and mocked in tests — see
+> [Before a real run](#before-a-real-run).
 
 ## Pipeline
 
@@ -22,7 +24,7 @@ whole harness is model-family-aware and runs either).
 base model (gpt-oss-120b / Qwen2.5-Coder-32B)
         │
         ▼
-   [1] Heretic       weight surgery — abliterate refusal directions (bnb_4bit)
+   [1] Heretic       weight surgery — abliterate refusals (bf16 direct-tensor: o_proj + fused MoE experts)
         │
         ▼
    [2] SFT           Unsloth LoRA — agentic SWE + tool-calling data (harmony/ChatML)
@@ -43,7 +45,7 @@ RFT→RLVR tail when no verifier/exec-sandbox is available). Design detail:
 
 | Stage | Dir | Method | GPU |
 |---|---|---|---|
-| 1 | `stage1/` | Heretic abliteration (weight surgery, no gradients) | 1×H200 |
+| 1 | `stage1/` | Heretic abliteration (weight surgery, no gradients) | 2×H200 |
 | 2 | `stage2/` | Unsloth SFT (LoRA) | 1×H200 |
 | 3 | `stage4/` | RFT rejection-sampling loop (vLLM + exec sandbox) | 1×H200 |
 | 4 | `stage5/` | RLVR — TRL GRPO + **GSPO**, terminal | 2–4×H200 |
@@ -64,7 +66,19 @@ against billing leaks). Exit `0` iff the stage verdict is `PASS`.
   (Qwen) for masking delimiters, dataprep tool-call encoding, and eval parsing.
   Both paths kept and regression-locked.
 - **Cost-aware** — interruptible instances + checkpointing, RFT-then-distill as the
-  default RLVR mode, KV-cache kit (prefix caching + FP8 KV) for rollouts.
+  default RLVR mode, KV-cache kit (prefix caching + FP8 KV) for rollouts. Stage 1
+  runs 2×H200 (bf16 120B); 4×H200 bought no wall-clock (per-trial is bound by the
+  expert surgery, not batch), so 2× is half the cost.
+- **Abliteration reaches the experts** — heretic pinned to `1.1.0` (direct-tensor
+  surgery on the fused `mlp.experts.down_proj`; v1.2+/master use LoRA-on-modules,
+  which can't wrap a bare `Parameter` and silently abliterate `o_proj` only).
+  `setup.sh` purges any pre-baked heretic + asserts the pin is the on-PATH binary,
+  and a **KL no-op tripwire** aborts a near-zero-KL run before eval/publish — after
+  an image-shadowed build once no-op'd a full ~$150 run.
+- **SFT throughput/quality** — BFD example-packing (block-diagonal over FA, ~2×
+  wall-clock), completion-only loss masking, opt-in rsLoRA (`HIGH_RANK_RSLORA`,
+  r=64/α=128 — fixes the plain-LoRA r≥64 gradient collapse) and NEFTune. Mined from
+  a 2026 SOTA-techniques sweep; see `shared/train_common.py`, `stage2/remote/`.
 
 ## Verdict gate
 
@@ -76,6 +90,11 @@ Each trained stage gates on a capability check (`shared/verdict.py`):
 | `bfcl_accuracy` | `> 0.85` | tool-call correctness *(threshold under review — exact-match harness)* |
 | `humaneval_delta` | `< 0.03` | code-gen regression vs the input model |
 | `swebench_resolve` | `> 0.40` | SWE-bench Verified resolve rate |
+
+Stage 1 (abliteration) gates separately: `refusal_rate` (refusals removed) plus
+`mmlu_delta` / `gsm8k_delta` capability guards; KL is **informational** (a strong
+abliteration has high KL by design) — but a **sub-0.01 KL no-op tripwire** hard-fails
+a run that barely changed the model, before eval or publish.
 
 Evals run in a **subprocess isolated** from Unsloth's monkey-patches. SWE-bench is
 heavy; `CHEAP_EVAL=1` runs a reduced subset during dev, full at the final verdict.
@@ -102,7 +121,7 @@ docs/superpowers/  design specs + implementation plans
 python -m pipeline.runner                      # full chain, stops on any fail
 
 # single stage (family + cost flags):
-python stage1/controller.py --model openai/gpt-oss-120b --family gpt_oss
+python stage1/controller.py --model unsloth/gpt-oss-120b-BF16 --family gpt_oss  # bf16: heretic has no MXFP4 path
 python stage2/controller.py --model PeetPedro/gpt-oss-120b-heretic --interruptible
 python stage4/controller.py --rounds 2 --num-candidates 8
 python stage5/controller.py --mode distill     # distill | offline-kto | live-rl
