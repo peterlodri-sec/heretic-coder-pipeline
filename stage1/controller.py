@@ -77,10 +77,13 @@ def main() -> int:
                 vast,
                 # gpt-oss-120b abliterated in BF16 (heretic has no MXFP4 path;
                 # bf16 guarantees o_proj+down_proj surgery). ~240GB weights won't
-                # fit 1 H200 -> 2xH200 (282GB), device_map=auto shards them.
+                # fit 1 H200; device_map=auto shards across the GPUs. 4xH200 (564GB)
+                # over 2xH200: the model spreads thinner -> far more memory for the
+                # per-trial eval batch -> ~1.3-1.8x faster trials (heretic pipelines
+                # a single model, so the gain is batch headroom, not linear).
                 # disk ~650: 240GB bf16 weights + ~240GB export + env (~480GB peak).
                 # reliability>0.98 avoids flaky deploy hosts.
-                query="gpu_name=H200 num_gpus=2 disk_space>=600 reliability>0.98 rentable=true",
+                query="gpu_name=H200 num_gpus=4 disk_space>=600 reliability>0.98 rentable=true",
                 disk_gb=650,
                 interruptible=args.interruptible,
             )
