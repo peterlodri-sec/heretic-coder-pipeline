@@ -1,12 +1,13 @@
-# heretic auto-reads THIS file (hardcoded name "config.toml") from its launch cwd
-# (/root/stage1/remote). CLI flags in run_stage1.py override per-key; these are the
-# loading knobs we don't pass on the CLI.
+# heretic v1.1.0 auto-reads THIS file (hardcoded name "config.toml") from its
+# launch cwd (/root/stage1/remote). CLI flags in run_stage1.py (--model,
+# --n-trials) override per-key; these are the loading knobs we don't pass on
+# the CLI.
 #
-# gpt-oss-120b abliterated in BF16 across 2xH200 (device_map=auto shards ~240GB;
-# heretic has no MXFP4 path, so bf16 is required to abliterate down_proj/experts).
-# quantization=none (default, listed for explicitness) — do NOT bnb-4bit the bf16
-# source. max_memory pins weights to the 2 GPUs (steady-state on-GPU, no CPU spill
-# during the 200-trial forward passes); cpu line only cushions the load transient.
+# FIX A: pinned to heretic v1.1.0, whose Settings has `device_map` but NOT
+# `max_memory` or `quantization` (those fields do not exist in v1.1.0, so
+# leaving them here would surface as configuration errors / be ignored).
+# gpt-oss-120b is abliterated in BF16 across 2xH200: device_map="auto" shards
+# the ~240GB of bf16 weights over both GPUs (spilling to CPU only if needed).
+# heretic has no MXFP4 path, so bf16 is required for its direct-tensor surgery
+# to reach the fused MoE-expert down_proj.
 device_map = "auto"
-max_memory = { "0" = "138GB", "1" = "138GB", "cpu" = "1500GB" }
-quantization = "none"

@@ -1,13 +1,19 @@
 # stage1/remote/requirements.txt
-# heretic-llm's headless/non-interactive CLI flags (--checkpoint-action,
-# --trial-index, --model-action, --save-directory, etc.) landed in commit
-# e7b783e on master but have not been released to PyPI (latest release is
-# v1.4.0, predating that commit) — install from source, pinned, until a
-# release includes it.
-heretic-llm @ git+https://github.com/p-e-w/heretic.git@e7b783ed85
+# heretic pinned to v1.1.0 (FIX A): the newest release that still does
+# direct-tensor surgery (get_layer_matrices) with the fused-expert branch
+# try_add("mlp.down_proj", layer.mlp.experts.down_proj), so gpt-oss-120b's
+# fused 3-D MoE-expert down_proj actually gets abliterated. master (@e7b783e)
+# and v1.2+ refactored to LoRA-on-Modules, which cannot wrap a bare Parameter
+# and silently falls back to o_proj-only (the KL~0.016 regression).
+# v1.1.0 has NO headless CLI flags; it prompts interactively via questionary
+# (prompt_toolkit, which needs a TTY) -> run_stage1.run_heretic drives it
+# through a pty with pexpect.
+heretic-llm==1.1.0
+pexpect==4.9.0
 # Pin the rest too: an unpinned upstream breaking change is the same failure
-# class the heretic pin above just cured. Versions verified against heretic's
-# own ranges at e7b783e (huggingface-hub~=1.7, lm-eval~=0.4, optuna~=4.7).
+# class the heretic pin above just cured. huggingface_hub/optuna satisfy
+# heretic v1.1.0's declared ranges (>=0.34.4, >=4.5.0); lm_eval is our own
+# capability_eval dependency (heretic v1.1.0 does not use lm-eval).
 huggingface_hub==1.24.0
 hf-transfer==0.1.9
 lm_eval==0.4.12

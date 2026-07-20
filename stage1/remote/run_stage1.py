@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 # stage1/remote/run_stage1.py
 import os
-import subprocess
 import sys
 import time
+
+import pexpect
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
@@ -25,13 +26,10 @@ TRIAL_INDEX = 0
 STATUS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "status.json")
 HERETIC_LOG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "heretic_run.log")
 HF_REPO_ID = "PeetPedro/gpt-oss-120b-heretic"
-# Heretic quantization is DECOUPLED from the training-stage load_in_4bit: for
-# gpt-oss we abliterate the BF16 source (heretic has no MXFP4 path; bf16 is the
-# only way its surgery reaches down_proj/experts) with quantization="none".
-# device_map/max_memory (2xH200 shard) live in config.toml. Falsy => heretic
-# default "none", no --quantization flag emitted. Override via STAGE1_QUANTIZATION.
-_q = os.environ.get("STAGE1_QUANTIZATION", "none").strip().lower()
-QUANTIZATION = None if _q in ("", "none") else _q
+# heretic abliterates the BF16 source (it has no MXFP4 path; bf16 is the only
+# way its direct-tensor surgery reaches the fused MoE-expert down_proj). The
+# 2xH200 shard (device_map="auto") lives in config.toml. v1.1.0 has no
+# `quantization` field, so there is nothing to pass here.
 WALL_CLOCK_CEILING_SECONDS = 24 * 60 * 60
 
 
@@ -56,32 +54,74 @@ def tail(path: str, n_chars: int = 4000) -> str:
         return f.read().decode("utf-8", errors="replace")
 
 
+# heretic v1.1.0 has NO headless CLI flags (no --export-strategy /
+# --checkpoint-action / --trial-index / --model-action / --save-directory /
+# --study-checkpoint-dir / --quantization). Only the pydantic-settings fields
+# are exposed as flags; we pass --model and --n-trials and leave device_map to
+# config.toml. At the end of a run it prompts interactively via questionary
+# (prompt_toolkit), which REQUIRES a real TTY -- a piped stdin does not work --
+# so we spawn it under a pty with pexpect and answer each prompt by its text.
+HERETIC_CMD = ["heretic", "--model", MODEL, "--n-trials", str(N_TRIALS)]
+
+
+def _drive_heretic_prompts(child: "pexpect.spawn") -> None:
+    # 1. Trial-selection menu. best_trials are sorted fewest-refusals first and
+    #    that top choice is pre-highlighted, so Enter selects the best trial.
+    child.expect("Which trial do you want to use")
+    child.send("\r")
+    # 2. Action menu. "Save the model to a local folder" is the first,
+    #    pre-highlighted option -> Enter selects it.
+    child.expect("What do you want to do with the decensored model")
+    child.send("\r")
+    # 3. Destination path. questionary.path -> type EXPORT_DIR (relative to the
+    #    run cwd) so save_pretrained lands the bf16 model in ./heretic_export.
+    child.expect("Path to the folder")
+    child.send(EXPORT_DIR + "\r")
+    # 4. Confirmation that the model reached disk -- the only artifact we need.
+    child.expect("Model saved to")
+    # 5. The action menu re-renders. Ctrl+C (0x03) is read by prompt_toolkit as
+    #    a key that makes questionary's .ask() return None, so heretic breaks
+    #    the action loop WITHOUT ever touching the "Upload to Hugging Face"
+    #    branch (we publish separately). This is more robust than counting menu
+    #    entries down to "Nothing", and it never uploads.
+    child.expect("What do you want to do with the decensored model")
+    child.send("\x03")
+    # 6. The trial menu re-renders. Ctrl+C again -> .ask() returns None ->
+    #    heretic breaks the trial loop and run() returns cleanly (exit 0). The
+    #    number of Pareto trials is variable, so Ctrl+C is used rather than
+    #    navigating to the "None (exit program)" entry.
+    child.expect("Which trial do you want to use")
+    child.send("\x03")
+
+
 def run_heretic() -> None:
-    cmd = [
-        "heretic", "--model", MODEL,
-        "--export-strategy", "merge",
-        "--checkpoint-action", "continue",
-        "--trial-index", str(TRIAL_INDEX),
-        "--model-action", "save",
-        "--save-directory", EXPORT_DIR,
-        "--study-checkpoint-dir", STUDY_CHECKPOINT_DIR,
-        "--n-trials", str(N_TRIALS),
-    ]
-    # bitsandbytes quantization (heretic `quantization` option) so the 120B fits.
-    if QUANTIZATION:
-        cmd += ["--quantization", QUANTIZATION]
     with open(HERETIC_LOG_PATH, "a") as logf:
         try:
-            proc = subprocess.run(
-                cmd, stdout=logf, stderr=subprocess.STDOUT,
-                timeout=WALL_CLOCK_CEILING_SECONDS,
+            child = pexpect.spawn(
+                HERETIC_CMD[0], HERETIC_CMD[1:],
+                encoding="utf-8", codec_errors="replace",
+                timeout=WALL_CLOCK_CEILING_SECONDS,  # covers the ~9.5h optimize
+                dimensions=(50, 200),  # wide TTY so questionary doesn't wrap
             )
-        except subprocess.TimeoutExpired as error:
-            raise HereticError("wall-clock ceiling exceeded") from error
-        except OSError as error:
+        except (pexpect.ExceptionPexpect, OSError) as error:
             raise HereticError(f"failed to launch heretic: {error}") from error
-    if proc.returncode != 0:
-        raise HereticError(f"heretic exited with code {proc.returncode}")
+        child.logfile_read = logf  # mirror everything heretic prints to the log
+        try:
+            _drive_heretic_prompts(child)
+            child.expect(pexpect.EOF)
+        except pexpect.TIMEOUT as error:
+            child.close(force=True)
+            raise HereticError("wall-clock ceiling exceeded") from error
+        except pexpect.EOF as error:
+            child.close(force=True)
+            raise HereticError("heretic exited before the save completed") from error
+        finally:
+            if child.isalive():
+                child.close(force=True)
+    if child.signalstatus is not None:
+        raise HereticError(f"heretic killed by signal {child.signalstatus}")
+    if child.exitstatus not in (0, None):
+        raise HereticError(f"heretic exited with code {child.exitstatus}")
 
 
 def fail(status: Status, message: str) -> None:
