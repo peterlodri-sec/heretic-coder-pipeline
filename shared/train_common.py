@@ -16,6 +16,13 @@ class LoraSpec:
     alpha: int = 64
     dropout: float = 0.0
     targets: tuple[str, ...] = LORA_TARGETS
+    # rsLoRA (rank-stabilized): scales the adapter by alpha/sqrt(r) instead of
+    # alpha/r, which stabilizes higher ranks and is the intended way to get r>32
+    # capacity back without the ~19.5% HumanEval regression plain r=64 caused.
+    # OPT-IN ONLY: turning it on changes the effective scale (~5.6x at r=32/a=64:
+    # 64/sqrt(32)=11.3 vs 64/32=2.0), so it needs a deliberate alpha/LR re-tune —
+    # never flip it under the current alpha and expect the same run.
+    use_rslora: bool = False
 
 
 def load_lora_model(model_source: str, *, max_seq_len: int, load_in_4bit: bool,
@@ -32,7 +39,7 @@ def load_lora_model(model_source: str, *, max_seq_len: int, load_in_4bit: bool,
     )
     model = FastLanguageModel.get_peft_model(
         model, r=lora.r, lora_alpha=lora.alpha, lora_dropout=lora.dropout,
-        target_modules=list(lora.targets),
+        target_modules=list(lora.targets), use_rslora=lora.use_rslora,
         use_gradient_checkpointing="unsloth", random_state=42,
     )
     return model, tokenizer

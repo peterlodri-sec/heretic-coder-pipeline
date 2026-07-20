@@ -46,3 +46,20 @@ def test_load_lora_model_wires_from_pretrained_and_peft(monkeypatch):
     peft = unsloth.FastLanguageModel.get_peft_model.call_args.kwargs
     assert peft["r"] == 32 and peft["lora_alpha"] == 64
     assert peft["target_modules"] == list(LORA_TARGETS)
+
+
+def test_rslora_defaults_off():
+    # rsLoRA rescales alpha/sqrt(r); it must never be a silent default.
+    assert LoraSpec().use_rslora is False
+
+
+def test_load_lora_model_passes_use_rslora(monkeypatch):
+    monkeypatch.setitem(sys.modules, "unsloth", _fake_unsloth({}))
+    # default: off
+    load_lora_model("src", max_seq_len=4096, load_in_4bit=True)
+    import unsloth
+    assert unsloth.FastLanguageModel.get_peft_model.call_args.kwargs["use_rslora"] is False
+    # opt-in threads through
+    load_lora_model("src", max_seq_len=4096, load_in_4bit=True,
+                    lora=LoraSpec(use_rslora=True))
+    assert unsloth.FastLanguageModel.get_peft_model.call_args.kwargs["use_rslora"] is True

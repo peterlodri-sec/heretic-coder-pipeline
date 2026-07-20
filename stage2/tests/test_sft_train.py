@@ -73,10 +73,26 @@ def test_dataset_is_chat_templated_to_text_field():
     cfg_kwargs = fakes["trl"].SFTConfig.call_args.kwargs
     assert cfg_kwargs["dataset_text_field"] == "text"
     assert cfg_kwargs["max_length"] == 16384
-    assert cfg_kwargs["packing"] is False
     assert "max_seq_length" not in cfg_kwargs
     # assistant-only loss now comes from the Unsloth helper, not the TRL flag
     assert "assistant_only_loss" not in cfg_kwargs
+
+
+def test_packing_bfd_enabled_by_default():
+    # BFD example-packing on by default: block-diagonal over FlashAttention, so
+    # packed examples don't attend across the seam. NOT "wrapped" (which mixes them).
+    fakes, _ = _run_train()
+    cfg = fakes["trl"].SFTConfig.call_args.kwargs
+    assert cfg["packing"] is True
+    assert cfg["packing_strategy"] == "bfd"
+
+
+def test_packing_off_switch(monkeypatch):
+    # STAGE2_PACKING=0 disables packing (read at import; _run_train reloads).
+    monkeypatch.setenv("STAGE2_PACKING", "0")
+    fakes, _ = _run_train()
+    cfg = fakes["trl"].SFTConfig.call_args.kwargs
+    assert cfg["packing"] is False
 
 
 def test_response_only_masking_applied():

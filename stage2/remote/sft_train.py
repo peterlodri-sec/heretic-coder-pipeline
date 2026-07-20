@@ -1,6 +1,17 @@
 # stage2/remote/sft_train.py — Unsloth + TRL SFT (plan.md §2). Heavy imports are
 # function-local so the module imports without a GPU for unit tests.
+import os
+
 MAX_SEQ_LEN = 16384
+# BFD example-packing: bin-pack multiple examples per row and fill to max_length,
+# so real tokens (not padding) dominate every step -> ~2x less wall-clock at fixed
+# quality (lora-speedrun record #1). "bfd" is example-boundary-aware over
+# FlashAttention (block-diagonal via varlen position_ids) so packed examples do
+# NOT attend across the seam -- unlike "wrapped", which mixes them and which we
+# never want for long, structured agentic/code examples. Unsloth loads FA by
+# default, which BFD requires. Off-switch: STAGE2_PACKING=0.
+PACKING = os.environ.get("STAGE2_PACKING", "1") != "0"
+PACKING_STRATEGY = "bfd"
 
 
 def train(model_source: str, data_path: str, out_dir: str,
@@ -31,7 +42,8 @@ def train(model_source: str, data_path: str, out_dir: str,
     trainer = SFTTrainer(
         model=model, train_dataset=dataset, processing_class=tokenizer,
         args=SFTConfig(
-            dataset_text_field="text", max_length=MAX_SEQ_LEN, packing=False,
+            dataset_text_field="text", max_length=MAX_SEQ_LEN,
+            packing=PACKING, packing_strategy=PACKING_STRATEGY,
             per_device_train_batch_size=2, gradient_accumulation_steps=8,
             warmup_ratio=0.03, num_train_epochs=num_epochs, max_steps=max_steps,
             learning_rate=5e-5, bf16=True, lr_scheduler_type="cosine",
