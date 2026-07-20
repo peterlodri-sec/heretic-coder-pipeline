@@ -8,6 +8,7 @@ import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "remote"))
 
 import run_stage1  # noqa: E402
+from shared.enums import Verdict  # noqa: E402  (run_stage1 puts repo root on sys.path)
 
 REMOTE = os.path.join(os.path.dirname(__file__), "..", "remote")
 
@@ -115,6 +116,97 @@ def test_run_heretic_raises_when_spawn_fails(tmp_path):
                side_effect=run_stage1.pexpect.ExceptionPexpect("no binary")):
         with pytest.raises(run_stage1.HereticError, match="failed to launch"):
             run_stage1.run_heretic()
+
+
+# --- main() eval path: v1.1.0-compatible metrics -------------------------------
+
+def _bench(mmlu_acc, gsm8k_acc):
+    return {
+        "mmlu": {"acc,none": mmlu_acc},
+        "gsm8k": {"exact_match,strict-match": gsm8k_acc},
+    }
+
+
+def _run_main(tmp_path, *, refusal, base, candidate):
+    """Drive run_stage1.main() with heretic + both large-model evals mocked.
+
+    Returns (status, mocks) where status is the final persisted Status and mocks
+    is a dict of the patched callables for assertions.
+    """
+    status_path = str(tmp_path / "status.json")
+    run_benchmarks = MagicMock(side_effect=[base, candidate])
+    refusal_rate = MagicMock(return_value=refusal)
+    load_prompts = MagicMock(return_value=["harmful prompt"])
+    publish = MagicMock()
+
+    with patch.object(run_stage1, "STATUS_PATH", status_path), \
+         patch.object(run_stage1, "HERETIC_LOG_PATH", str(tmp_path / "h.log")), \
+         patch.object(run_stage1, "run_heretic"), \
+         patch.object(run_stage1, "load_refusal_prompts", load_prompts), \
+         patch.object(run_stage1, "refusal_rate", refusal_rate), \
+         patch.object(run_stage1.capability_eval, "run_benchmarks", run_benchmarks), \
+         patch.object(run_stage1, "publish", publish):
+        run_stage1.main()
+
+    status = run_stage1.Status.read(status_path)
+    return status, {
+        "run_benchmarks": run_benchmarks,
+        "refusal_rate": refusal_rate,
+        "load_prompts": load_prompts,
+        "publish": publish,
+    }
+
+
+def test_main_refusal_rate_comes_from_direct_eval_on_export(tmp_path):
+    # Good refusal + tiny capability deltas => PASS and publish.
+    status, mocks = _run_main(
+        tmp_path,
+        refusal=0.1,
+        base=_bench(0.80, 0.60),
+        candidate=_bench(0.79, 0.60),
+    )
+    # refusal_rate is the DIRECT refusal eval on the abliterated EXPORT_DIR model.
+    assert mocks["refusal_rate"].call_args.args[0] == run_stage1.EXPORT_DIR
+    assert status.refusal_rate == 0.1
+    # capability deltas gate the verdict (base - candidate).
+    assert abs(status.mmlu_delta - 0.01) < 1e-9
+    assert status.verdict is Verdict.PASS
+    mocks["publish"].assert_called_once()
+
+
+def test_main_kl_divergence_is_informational_none(tmp_path):
+    # kl is not computed; it is written as None and must not crash or gate.
+    status, _ = _run_main(
+        tmp_path,
+        refusal=0.05,
+        base=_bench(0.80, 0.60),
+        candidate=_bench(0.80, 0.60),
+    )
+    assert status.kl_divergence is None
+    assert status.verdict is Verdict.PASS
+
+
+def test_main_high_refusal_fails_and_does_not_publish(tmp_path):
+    status, mocks = _run_main(
+        tmp_path,
+        refusal=0.9,  # >= 0.65 ceiling => FAIL
+        base=_bench(0.80, 0.60),
+        candidate=_bench(0.80, 0.60),
+    )
+    assert status.verdict is Verdict.FAIL
+    mocks["publish"].assert_not_called()
+
+
+def test_main_capability_regression_fails_despite_good_refusal(tmp_path):
+    # refusal is fine but mmlu regresses 0.10 (> 0.05 ceiling) => FAIL.
+    status, mocks = _run_main(
+        tmp_path,
+        refusal=0.05,
+        base=_bench(0.80, 0.60),
+        candidate=_bench(0.70, 0.60),
+    )
+    assert status.verdict is Verdict.FAIL
+    mocks["publish"].assert_not_called()
 
 
 # --- config.toml is v1.1.0-shaped ----------------------------------------------

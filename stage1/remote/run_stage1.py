@@ -11,18 +11,20 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 import capability_eval
-import study_metrics
 import verdict
 from enums import Stage
 from shared.enums import Verdict
+# These are import-safe (GPU-free): every heavy dep (torch/transformers/datasets)
+# is imported function-locally inside shared.eval, so importing them here at
+# module scope does not pull an accelerator dependency.
+from shared.eval.datasets import load_refusal_prompts
+from shared.eval.refusal import refusal_rate
 from status_io import Status
 
 MODEL = os.environ.get("STAGE1_MODEL", "unsloth/gpt-oss-120b-BF16")
 FAMILY = os.environ.get("STAGE1_FAMILY", "gpt_oss")
 N_TRIALS = int(os.environ.get("STAGE1_N_TRIALS", "200"))
-STUDY_CHECKPOINT_DIR = "checkpoints"
 EXPORT_DIR = "heretic_export"
-TRIAL_INDEX = 0
 STATUS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "status.json")
 HERETIC_LOG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "heretic_run.log")
 HF_REPO_ID = "PeetPedro/gpt-oss-120b-heretic"
@@ -150,7 +152,17 @@ def main() -> None:
 
     update_status(status, stage=Stage.EVALUATING)
     try:
-        scores = study_metrics.load_chosen_trial_scores(STUDY_CHECKPOINT_DIR, MODEL, TRIAL_INDEX)
+        # refusal_rate: DIRECT refusal eval on the abliterated model at
+        # EXPORT_DIR. heretic v1.1.0 keeps Optuna IN MEMORY (no checkpoints/
+        # journal, and it stores user_attrs["refusals"]/["kl_divergence"], not
+        # ["scores"]), so the old study_metrics journal path is gone. This
+        # measures the shipped artifact directly and does not depend on parsing
+        # heretic's interactive stdout. refusal_rate loads the 120B via the
+        # sharded _model.load_model (device_map="auto") and frees it before
+        # returning (OOM-safe pattern), so it is never co-resident with the
+        # capability models below.
+        prompts = load_refusal_prompts()
+        refusal = refusal_rate(EXPORT_DIR, prompts, family=FAMILY)
         # run_benchmarks frees its 120B (del + empty_cache) before returning, so
         # the base model is released before the candidate loads — the two are
         # never GPU-resident at once. base_results is a small metrics dict only.
@@ -160,7 +172,16 @@ def main() -> None:
     except Exception as error:
         return fail(status, f"evaluation failed: {error}")
 
-    metrics = {**scores, **deltas}
+    # kl_divergence is INFORMATIONAL ONLY (not gated — see verdict.THRESHOLDS).
+    # A strong abliteration legitimately has high KL by design; we do not spend a
+    # fresh (expensive) KL pass and do not parse heretic's menu. run_heretic does
+    # not surface a KL, so this is None until/unless it does.
+    metrics = {
+        "refusal_rate": refusal,
+        "kl_divergence": None,
+        "mmlu_delta": deltas["mmlu_delta"],
+        "gsm8k_delta": deltas["gsm8k_delta"],
+    }
     result = verdict.compute_verdict(metrics)
 
     update_status(
