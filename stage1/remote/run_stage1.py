@@ -97,6 +97,11 @@ def _drive_heretic_prompts(child: "pexpect.spawn") -> None:
 
 
 def run_heretic() -> None:
+    # Clear any stale export from a prior run BEFORE abliterating: on a reused box
+    # the old ~240GB heretic_export + the ~240GB model cache + the new export would
+    # overflow the 650GB disk. Fresh box: this is a no-op.
+    import shutil
+    shutil.rmtree(EXPORT_DIR, ignore_errors=True)
     with open(HERETIC_LOG_PATH, "a") as logf:
         try:
             child = pexpect.spawn(
