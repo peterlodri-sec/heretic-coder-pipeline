@@ -181,12 +181,23 @@ def fail(status: Status, message: str) -> None:
                   error=message, log_tail=tail(HERETIC_LOG_PATH))
 
 
+PIPELINE_URL = "https://github.com/peterlodri-sec/heretic-coder-pipeline"
+
+
 def publish(status: Status) -> None:
     from huggingface_hub import HfApi
 
     api = HfApi()
     api.create_repo(repo_id=HF_REPO_ID, private=True, exist_ok=True)
     api.upload_folder(folder_path=EXPORT_DIR, repo_id=HF_REPO_ID)
+    # Every new repo gets a model card — never ship weights without one.
+    try:
+        from shared.model_card import push_card
+        push_card(HF_REPO_ID, MODEL, "abliteration", family=FAMILY, pipeline_url=PIPELINE_URL,
+                  metrics={"refusal_rate": status.refusal_rate, "kl_divergence": status.kl_divergence,
+                           "mmlu_delta": status.mmlu_delta, "gsm8k_delta": status.gsm8k_delta})
+    except Exception as error:  # a card failure must not fail the publish
+        print(f"model card push failed (non-fatal): {error}")
     update_status(status, hf_repo=HF_REPO_ID)
 
 
