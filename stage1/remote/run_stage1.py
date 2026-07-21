@@ -78,11 +78,26 @@ HERETIC_CMD = [HERETIC_BIN, "--model", MODEL, "--n-trials", str(N_TRIALS)]
 # before the expensive eval and never publish it.
 NOOP_KL_FLOOR = 0.01
 _KL_RE = re.compile(r"KL divergence:\s*([0-9.]+)")
+# End-of-run trial menu lines: "Refusals: 20/100, KL divergence: 0.1231".
+_TRIAL_RE = re.compile(r"Refusals:\s*(\d+)/(\d+),\s*KL divergence:\s*([0-9.]+)")
 
 
-def parse_final_kl(text: str) -> "float | None":
-    matches = _KL_RE.findall(text)
-    return float(matches[-1]) if matches else None
+def parse_best_kl(text: str) -> "float | None":
+    """MAX KL across all trials — the 'did anything change' signal for the no-op
+    tripwire. A true no-op (o_proj-only) leaves EVERY trial near zero; a real
+    abliteration has at least one high-KL trial. Do NOT use the last KL in the log:
+    the end-of-run selection menu re-lists trials sorted worst-KL-last, so the final
+    match is the WORST trial (this once false-flagged a good run: menu ended at
+    0.0023 while the selected best trial was 0.1231)."""
+    kls = [float(x) for x in _KL_RE.findall(text)]
+    return max(kls) if kls else None
+
+
+def parse_selected_trial_kl(text: str) -> "float | None":
+    """KL of the trial our pexpect selects = fewest refusals (the top, pre-
+    highlighted menu entry). This is the KL of the model actually saved/published."""
+    trials = [(int(r), float(k)) for r, _t, k in _TRIAL_RE.findall(text)]
+    return min(trials, key=lambda rk: rk[0])[1] if trials else None
 
 
 def _drive_heretic_prompts(child: "pexpect.spawn") -> None:
@@ -190,9 +205,10 @@ def main() -> None:
     # only regression that wasted the first run. Catch it BEFORE the expensive 120B
     # eval and never let it publish. (High KL is fine and expected; only sub-floor
     # KL is the failure signal.)
-    final_kl = parse_final_kl(tail(HERETIC_LOG_PATH, 200_000))
-    if final_kl is not None and final_kl < NOOP_KL_FLOOR:
-        return fail(status, f"suspected no-op abliteration: final KL={final_kl:.4f} "
+    log_text = tail(HERETIC_LOG_PATH, 400_000)  # wide enough to include the trial menu
+    best_kl = parse_best_kl(log_text)
+    if best_kl is not None and best_kl < NOOP_KL_FLOOR:
+        return fail(status, f"suspected no-op abliteration: best trial KL={best_kl:.4f} "
                             f"< floor {NOOP_KL_FLOOR} (fused experts likely skipped)")
 
     update_status(status, stage=Stage.EVALUATING)
@@ -224,9 +240,9 @@ def main() -> None:
     metrics = {
         "refusal_rate": refusal,
         # Informational only (not gated upward -- a strong abliteration has high KL
-        # by design). Now populated from heretic's own log so the monitor can show
-        # it; the sub-floor no-op check above already ran before eval.
-        "kl_divergence": final_kl,
+        # by design). Report the SELECTED trial's KL (the model actually saved),
+        # falling back to the best KL; the sub-floor no-op check above already ran.
+        "kl_divergence": parse_selected_trial_kl(log_text) or best_kl,
         "mmlu_delta": deltas["mmlu_delta"],
         "gsm8k_delta": deltas["gsm8k_delta"],
     }
