@@ -18,6 +18,7 @@ STAGE_BLURB = {
     "sft": "Supervised fine-tuning (Unsloth LoRA) on agentic SWE + tool-calling data, on top of the abliterated base.",
     "rft": "Rejection-sampling fine-tuning: sample N, execution-verify against tests, SFT on the passers.",
     "rlvr": "RL from verifiable rewards (TRL, GSPO for MoE): reward = code compiles and passes tests.",
+    "orpo": "ORPO preference tuning (budget fallback for the RFT->RLVR tail when no verifier/exec-sandbox is available).",
 }
 
 

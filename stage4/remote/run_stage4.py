@@ -125,11 +125,22 @@ def _evaluate(merged: str, base: str, check_swebench: bool) -> dict:
     return json.loads(lines[-1][len("METRICS_JSON "):])
 
 
+PIPELINE_URL = "https://github.com/peterlodri-sec/heretic-coder-pipeline"
+
+
 def publish(status: Status, gguf_dir: str) -> None:
     from huggingface_hub import HfApi
     api = HfApi()
     api.create_repo(repo_id=HF_REPO_ID, private=True, exist_ok=True)
     api.upload_folder(folder_path=gguf_dir, repo_id=HF_REPO_ID)
+    try:  # every new repo gets a model card; a card failure never fails the publish
+        from shared.model_card import push_card
+        push_card(HF_REPO_ID, MODEL_SOURCE, "rft", family=FAMILY, pipeline_url=PIPELINE_URL,
+                  metrics={"train_loss": status.train_loss, "refusal_rate": status.refusal_rate,
+                           "bfcl_accuracy": status.bfcl_accuracy, "humaneval_delta": status.humaneval_delta,
+                           "swebench_resolve": status.swebench_resolve})
+    except Exception as error:
+        print(f"model card push failed (non-fatal): {error}")
     update_status(status, hf_repo=HF_REPO_ID)
 
 
