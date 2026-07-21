@@ -104,6 +104,12 @@ def publish(status: Status) -> None:
                            "swebench_resolve": status.swebench_resolve})
     except Exception as error:  # a card failure must not fail the publish
         print(f"model card push failed (non-fatal): {error}")
+    # Third copy to Google Drive (best-effort; HF is primary).
+    try:
+        from shared.gdrive_backup import backup
+        backup(GGUF_OUT, HF_REPO_ID.split("/")[-1])
+    except Exception as error:
+        print(f"gdrive backup failed (non-fatal): {error}")
     update_status(status, hf_repo=HF_REPO_ID)
 
 

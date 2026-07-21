@@ -39,6 +39,13 @@ def deploy_and_launch(instance: dict, model: str, max_steps: int, crabcc_traces:
     if token:
         ssh_utils.run_ssh(host, port, "mkdir -p /root/.cache/huggingface")
         ssh_utils.scp_to(host, port, token, "/root/.cache/huggingface/token")
+    # Ship the drive.file-scoped rclone.conf so the box can back models up to
+    # Drive (a third copy alongside HF). Scoped token -> a leaked box can only
+    # touch our backup files. Skipped cleanly if not configured locally.
+    rclone_conf = os.path.expanduser("~/.config/rclone/rclone.conf")
+    if os.path.exists(rclone_conf):
+        ssh_utils.run_ssh(host, port, "mkdir -p /root/.config/rclone")
+        ssh_utils.scp_to(host, port, rclone_conf, "/root/.config/rclone/rclone.conf")
     ssh_utils.send_dir(host, port, SHARED_DIR, REMOTE_PARENT)
     ssh_utils.send_dir(host, port, STAGE2_DIR, REMOTE_PARENT)
     ssh_utils.run_ssh(host, port, f"cd {REMOTE_ROOT}/remote && bash setup.sh",
