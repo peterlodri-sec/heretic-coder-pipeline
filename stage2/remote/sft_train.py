@@ -24,6 +24,12 @@ def train(model_source: str, data_path: str, out_dir: str,
           max_steps: int = -1, num_epochs: int = 3,
           load_in_4bit: bool | None = None,
           family: str = "gpt_oss") -> tuple[float, object, object]:
+    # Import unsloth FIRST — before trl/transformers/peft — so its patches
+    # actually apply. TRL pulls in transformers on import, so this line must
+    # precede `from trl import ...` or unsloth warns "should be imported before
+    # [trl, transformers, peft] ... your code may run slower". Kept function-local
+    # (not module-top) so this module still imports without a GPU for unit tests.
+    import unsloth  # noqa: F401  (imported for its import-time patching side effect)
     from trl import SFTConfig, SFTTrainer
     from datasets import load_dataset
     from shared.model_family import default_load_in_4bit, response_delimiters
