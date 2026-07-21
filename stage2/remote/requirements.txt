@@ -3,8 +3,15 @@
 # index BEFORE this file. Do NOT float transformers (unsloth has a long
 # exclusion list) and keep huggingface_hub on the 0.35.x band (transformers
 # <1.0 ceiling AND unsloth >=0.34.0 floor). Bump deliberately.
-unsloth==2026.7.3
-unsloth_zoo==2026.7.3
+# NOTE (router-load fix, to VERIFY on a GPU): the first Stage-2 run crashed with
+# "Unsloth: some weights not initialized" — gpt-oss mlp.router.* keys didn't map
+# under unsloth 2026.7.3 / transformers 4.56.2. Bumped unsloth to 2026.7.4 as the
+# low-risk first attempt (transformers stays pinned — unsloth gates it). If this
+# doesn't take, the fallbacks are: (a) newer transformers matched to a newer
+# unsloth, or (b) plain-transformers+PEFT SFT (the eval proved plain transformers
+# loads the abliterated checkpoint fine — it's Unsloth's loader that chokes).
+unsloth==2026.7.4
+unsloth_zoo==2026.7.4
 trl==0.24.0
 transformers==4.56.2
 datasets==4.3.0
