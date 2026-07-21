@@ -49,6 +49,12 @@ def deploy_and_launch(instance: dict, model: str, max_steps: int, crabcc_traces:
         f"STAGE2_MODEL='{model}' STAGE2_FAMILY='{family}' STAGE2_MAX_STEPS='{max_steps}' "
         f"STAGE2_CRABCC_TRACES='{crabcc_traces}' "
         f"STAGE2_CHECK_SWEBENCH='{int(check_swebench)}' "
+        # Forward the SFT knobs so they're controllable per-run. Packing defaults
+        # ON (bfd), but the first real 120B run can pass STAGE2_PACKING=0 to use the
+        # proven completion-masking path while the packing x masking composition is
+        # still unverified. NEFTune off by default.
+        f"STAGE2_PACKING='{os.environ.get('STAGE2_PACKING', '1')}' "
+        f"STAGE2_NEFTUNE='{os.environ.get('STAGE2_NEFTUNE', '0')}' "
         "tmux new-session -d -s sft 'python3 run_stage2.py'"
     )
     return host, port
