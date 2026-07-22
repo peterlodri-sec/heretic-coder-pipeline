@@ -135,26 +135,40 @@ def _load_plain_peft(model_source: str, *, max_seq_len: int, load_in_4bit: bool,
         return _load_zero3_bf16(model_source, attn=attn, lora=lora,
                                 full_finetuning=full_finetuning, tokenizer=tokenizer)
 
+    # MXFP4 (STAGE2_MXFP4=1): quantize gpt-oss's fused MoE experts to their NATIVE
+    # 4-bit MXFP4 on load — the format the model ships in. bnb can't touch the
+    # fused experts (they stay bf16 -> ~133GB, won't fit training), but the mxfp4
+    # quantizer does, tensor-by-tensor as it loads, so the resident model is ~63GB
+    # and fits ONE H200 with ~75GB training headroom. Our checkpoint is bf16
+    # (Heretic dequantized it); transformers quantizes bf16 -> mxfp4 on the fly.
+    mxfp4 = os.environ.get("STAGE2_MXFP4") == "1"
     quant = None
-    if load_in_4bit and not full_finetuning:
+    if mxfp4 and not full_finetuning:
+        from transformers import Mxfp4Config
+        quant = Mxfp4Config()  # quantize (not dequantize) the experts on load
+    elif load_in_4bit and not full_finetuning:
         from transformers import BitsAndBytesConfig
         quant = BitsAndBytesConfig(
             load_in_4bit=True, bnb_4bit_quant_type="nf4",
             bnb_4bit_compute_dtype=torch.bfloat16, bnb_4bit_use_double_quant=True,
         )
     model_kwargs = dict(
-        quantization_config=quant, device_map="auto",
-        torch_dtype=torch.bfloat16, attn_implementation=attn,
+        quantization_config=quant, torch_dtype=torch.bfloat16,
+        attn_implementation=attn,
     )
-    # Single-GPU (or small dense model) only: device_map packs the model onto the
-    # GPU(s). For the big gpt-oss on multiple GPUs use STAGE2_SHARDED=1 (ZeRO-3)
-    # above — device_map multi-GPU packs one GPU and OOMs at training.
+    # MXFP4 fits one GPU -> pin the whole model to cuda:0 (no split needed).
+    # Otherwise device_map packs onto the GPU(s); multi-GPU device_map packs one
+    # GPU and OOMs at training, so the big gpt-oss on many GPUs uses ZeRO-3 above.
     n_gpus = torch.cuda.device_count()
-    if n_gpus > 1:
-        model_kwargs["device_map"] = os.environ.get("STAGE2_DEVICE_MAP", "balanced")
-        per_gpu = os.environ.get("STAGE2_MAX_MEM_GIB", "120")
-        model_kwargs["max_memory"] = {i: f"{per_gpu}GiB" for i in range(n_gpus)}
-        model_kwargs["max_memory"]["cpu"] = "0GiB"
+    if mxfp4:
+        model_kwargs["device_map"] = {"": 0}
+    else:
+        model_kwargs["device_map"] = "auto"
+        if n_gpus > 1:
+            model_kwargs["device_map"] = os.environ.get("STAGE2_DEVICE_MAP", "balanced")
+            per_gpu = os.environ.get("STAGE2_MAX_MEM_GIB", "120")
+            model_kwargs["max_memory"] = {i: f"{per_gpu}GiB" for i in range(n_gpus)}
+            model_kwargs["max_memory"]["cpu"] = "0GiB"
     model = AutoModelForCausalLM.from_pretrained(model_source, **model_kwargs)
     model.config.use_cache = False  # incompatible with gradient checkpointing
 

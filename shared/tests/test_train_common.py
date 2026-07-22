@@ -136,6 +136,7 @@ def _fake_transformers_peft():
     tfm.AutoModelForCausalLM = MagicMock()
     tfm.AutoModelForCausalLM.from_pretrained.return_value = MagicMock()
     tfm.BitsAndBytesConfig = MagicMock(return_value="BNB")
+    tfm.Mxfp4Config = MagicMock(return_value="MXFP4")
     peft = types.ModuleType("peft")
     peft.LoraConfig = MagicMock(return_value="LORACFG")
     peft.get_peft_model = MagicMock(return_value="PEFTMODEL")
@@ -211,3 +212,15 @@ def test_gpt_oss_bf16_skips_bitsandbytes(monkeypatch):
     fp = tfm.AutoModelForCausalLM.from_pretrained.call_args.kwargs
     assert fp["quantization_config"] is None
     peft.prepare_model_for_kbit_training.assert_not_called()  # not a kbit model
+
+
+def test_gpt_oss_mxfp4_quantizes_on_one_gpu(monkeypatch):
+    tfm, peft, tok = _install_plain(monkeypatch)
+    monkeypatch.setenv("STAGE2_MXFP4", "1")
+    load_lora_model("m", max_seq_len=4096, load_in_4bit=True, family="gpt_oss")
+    fp = tfm.AutoModelForCausalLM.from_pretrained.call_args.kwargs
+    assert fp["quantization_config"] == "MXFP4"   # native 4-bit, not bnb
+    assert fp["device_map"] == {"": 0}             # fits one GPU, no split
+    assert "max_memory" not in fp
+    tfm.BitsAndBytesConfig.assert_not_called()     # mxfp4 wins over bnb
+    peft.prepare_model_for_kbit_training.assert_called_once()  # still a kbit model

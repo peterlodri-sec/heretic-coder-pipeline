@@ -24,13 +24,12 @@ REMOTE_LOG_PATH = f"{REMOTE_ROOT}/remote/sft_run.log"
 POLL_INTERVAL_SECONDS = 300
 SETUP_TIMEOUT_SECONDS = 1800  # unsloth + trl + transformers + datasets install is heavy
 PROVISION_LABEL = "heretic-sft"
-# 2x H200: gpt-oss's fused MoE experts can't be 4-bit-quantized by bitsandbytes
-# (bnb only quantizes nn.Linear), so they stay bf16 -> ~138GB resident, which
-# leaves no training headroom on ONE 141GB H200 (runs #4-5 OOM'd at step 1).
-# device_map="auto" shards the weights across two H200s (~280GB) with ample room
-# for activations. num_gpus>=2 same-host so the shard is NVLink-local.
-PROVISION_QUERY = "gpu_name=H200 num_gpus>=2 disk_space>=500 rentable=true"
-PROVISION_DISK_GB = 500  # 218GB bf16 model + 5 datasets + LoRA + gguf export
+# 1x H200: with STAGE2_MXFP4=1 the gpt-oss experts quantize to native 4-bit MXFP4
+# on load (~63GB resident), fitting ONE H200 with ~75GB training headroom. (bnb
+# can't 4-bit the fused experts -> ~133GB, needed 2x+; mxfp4 can.) Disk still holds
+# the 233GB bf16 checkpoint that downloads before it's quantized on load.
+PROVISION_QUERY = "gpu_name=H200 disk_space>=500 rentable=true"
+PROVISION_DISK_GB = 500  # 233GB bf16 download + datasets + LoRA + gguf export
 SSH_USER = "root"
 
 
@@ -84,7 +83,8 @@ def deploy_and_launch(instance: dict, model: str, max_steps: int, crabcc_traces:
         # defaults (eager attn, seq 16384, batch 2) apply otherwise.
         + _forward_env("STAGE2_ATTN", "STAGE2_MAX_SEQ_LEN", "STAGE2_BATCH",
                        "STAGE2_GRAD_ACCUM", "STAGE2_INCLUDE_SWEGYM",
-                       "PYTORCH_CUDA_ALLOC_CONF")
+                       "STAGE2_MXFP4", "STAGE2_SHARDED", "STAGE2_DEVICE_MAP",
+                       "STAGE2_MAX_MEM_GIB", "PYTORCH_CUDA_ALLOC_CONF")
         + "tmux new-session -d -s sft 'python3 run_stage2.py'"
     )
     return host, port
