@@ -64,8 +64,11 @@ def deploy_and_launch(instance: dict, model: str, max_steps: int, crabcc_traces:
         ssh_utils.scp_to(host, port, rclone_conf, "/root/.config/rclone/rclone.conf")
     ssh_utils.send_dir(host, port, SHARED_DIR, REMOTE_PARENT)
     ssh_utils.send_dir(host, port, STAGE2_DIR, REMOTE_PARENT)
-    ssh_utils.run_ssh(host, port, f"cd {REMOTE_ROOT}/remote && bash setup.sh",
-                      timeout=SETUP_TIMEOUT_SECONDS)
+    ssh_utils.run_ssh(
+        host, port,
+        f"cd {REMOTE_ROOT}/remote && "
+        f"STAGE2_SHARDED='{os.environ.get('STAGE2_SHARDED', '0')}' bash setup.sh",
+        timeout=SETUP_TIMEOUT_SECONDS)
     ssh_utils.run_ssh(
         host, port,
         f"cd {REMOTE_ROOT}/remote && HF_HUB_ENABLE_HF_TRANSFER=1 "

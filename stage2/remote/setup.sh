@@ -29,4 +29,15 @@ UV_PIP=(uv pip install --system)
 # No-op for non-mxfp4 runs. [verify on GPU: if 3.4.0 breaks torch 2.7.1 kernels,
 # fall back to torch 2.8.0 which ships triton 3.4.0.]
 "${UV_PIP[@]}" --no-deps triton==3.4.0
+# deepspeed ONLY for the sharded (gpt-oss ZeRO-3) path — just having it installed
+# makes accelerate/TRL probe its op-builder and JIT-compile a CUDA op, which fails
+# with "CUDA_HOME does not exist" on no-nvcc runtime images (and the qwen/Unsloth
+# path never uses DeepSpeed anyway). The ZeRO-3 path additionally needs a
+# CUDA-devel image with nvcc; wire that when returning to the 120B run.
+if [ "${STAGE2_SHARDED:-0}" = "1" ]; then
+  "${UV_PIP[@]}" deepspeed==0.16.4
+else
+  # ensure a cached/reused box that previously installed it is cleaned.
+  uv pip uninstall --system deepspeed 2>/dev/null || true
+fi
 echo "stage2 setup complete"
