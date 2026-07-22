@@ -172,6 +172,16 @@ def test_gpt_oss_uses_plain_transformers_peft_4bit(monkeypatch):
     assert lc["task_type"] == "CAUSAL_LM"
     peft.prepare_model_for_kbit_training.assert_called_once()  # QLoRA path
     assert tok.model_max_length == 16384  # clamped to max_seq_len
+    # gpt-oss REQUIRES eager: it has no sdpa kernel in transformers 4.56.2.
+    assert fp["attn_implementation"] == "eager"
+
+
+def test_gpt_oss_attn_impl_env_overrides(monkeypatch):
+    tfm, peft, tok = _install_plain(monkeypatch)
+    monkeypatch.setenv("STAGE2_ATTN", "flash_attention_2")
+    load_lora_model("m", max_seq_len=4096, load_in_4bit=True, family="gpt_oss")
+    fp = tfm.AutoModelForCausalLM.from_pretrained.call_args.kwargs
+    assert fp["attn_implementation"] == "flash_attention_2"
 
 
 def test_gpt_oss_bf16_skips_bitsandbytes(monkeypatch):

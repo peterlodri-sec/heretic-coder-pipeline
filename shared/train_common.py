@@ -103,11 +103,14 @@ def _load_plain_peft(model_source: str, *, max_seq_len: int, load_in_4bit: bool,
                      lora: LoraSpec, full_finetuning: bool):
     """Plain transformers + bitsandbytes + PEFT path — the gpt-oss loader.
 
-    Attention impl is env-selectable (STAGE2_ATTN, default 'sdpa'): 'sdpa' needs
-    no extra deps and is correct for the padded / completion-masked path. BFD
-    packing needs 'flash_attention_2' to keep packed examples from attending
-    across the seam, so the first successful run should use STAGE2_PACKING=0 (the
-    proven completion-masking path) OR install flash-attn and set STAGE2_ATTN.
+    Attention impl is env-selectable (STAGE2_ATTN, default 'eager'). gpt-oss
+    (GptOssForCausalLM) does NOT support 'sdpa' in transformers 4.56.2 — it raises
+    at load ("does not support ... scaled_dot_product_attention yet ... load with
+    attn_implementation='eager'"), so 'eager' is the correct, no-extra-dep default.
+    'flash_attention_2' is the fast option but needs flash-attn installed; it is
+    also what BFD packing requires to keep packed examples from attending across
+    the seam, so until flash-attn is added the first runs use STAGE2_PACKING=0 (the
+    proven completion-masking path).
 
     gpt-oss MoE experts are a fused 3-D tensor (mlp.experts.gate_up_proj /
     down_proj), not per-expert nn.Linear modules, so PEFT can only attach LoRA to
@@ -118,7 +121,7 @@ def _load_plain_peft(model_source: str, *, max_seq_len: int, load_in_4bit: bool,
     import torch
     from transformers import AutoModelForCausalLM
 
-    attn = os.environ.get("STAGE2_ATTN", "sdpa")  # eager | sdpa | flash_attention_2
+    attn = os.environ.get("STAGE2_ATTN", "eager")  # eager | flash_attention_2 (NOT sdpa for gpt-oss)
     tokenizer = load_tokenizer(model_source)
     if getattr(tokenizer, "model_max_length", None):
         tokenizer.model_max_length = max_seq_len
