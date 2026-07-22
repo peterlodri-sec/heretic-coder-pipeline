@@ -59,3 +59,10 @@ class JsonStatusMixin:
         with open(tmp_path, "w") as f:
             f.write(self.to_json())
         os.replace(tmp_path, path)
+        # Best-effort live push to the monitor webhook (no-op unless configured;
+        # never raises). Import lazily so status.py stays dependency-free.
+        try:
+            from shared.webhook import notify
+            notify(self.to_dict())
+        except Exception:  # noqa: BLE001 — webhook must never break a status write
+            pass

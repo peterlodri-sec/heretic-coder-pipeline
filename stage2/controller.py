@@ -72,6 +72,10 @@ def deploy_and_launch(instance: dict, model: str, max_steps: int, crabcc_traces:
         f"STAGE2_MODEL='{model}' STAGE2_FAMILY='{family}' STAGE2_MAX_STEPS='{max_steps}' "
         f"STAGE2_CRABCC_TRACES='{crabcc_traces}' "
         f"STAGE2_CHECK_SWEBENCH='{int(check_swebench)}' "
+        # Live monitor webhook: every status write on the box POSTs to the
+        # dashboard so it syncs in real time (no SSH-polling). PIPELINE_STAGE_KEY
+        # tells it which card; URL/TOKEN are forwarded only when set locally.
+        "PIPELINE_STAGE_KEY=sft "
         # Forward the SFT knobs so they're controllable per-run. Packing defaults
         # ON (bfd), but the first real 120B run can pass STAGE2_PACKING=0 to use the
         # proven completion-masking path while the packing x masking composition is
@@ -87,7 +91,8 @@ def deploy_and_launch(instance: dict, model: str, max_steps: int, crabcc_traces:
                        "STAGE2_DEVICE_MAP", "STAGE2_MAX_MEM_GIB",
                        "PYTORCH_CUDA_ALLOC_CONF",
                        # eval knobs (best-of-N headroom + contamination-free dev set)
-                       "SWE_N_SAMPLES", "SWE_EVAL_DATASET", "SWE_EVAL_SPLIT", "SWE_REPRO_FIRST")
+                       "SWE_N_SAMPLES", "SWE_EVAL_DATASET", "SWE_EVAL_SPLIT", "SWE_REPRO_FIRST",
+                       "PIPELINE_WEBHOOK_URL", "PIPELINE_WEBHOOK_TOKEN")
         + "tmux new-session -d -s sft 'python3 run_stage2.py'"
     )
     return host, port
