@@ -34,7 +34,9 @@ def notify(payload: dict, timeout: float = 3.0) -> bool:
         req = urllib.request.Request(
             url, data=body, method="POST",
             headers={"Content-Type": "application/json",
-                     "X-Webhook-Token": os.environ.get(TOKEN_ENV, "")},
+                     "X-Webhook-Token": os.environ.get(TOKEN_ENV, ""),
+                     # bypass the ngrok-free browser interstitial for the POST
+                     "ngrok-skip-browser-warning": "true"},
         )
         urllib.request.urlopen(req, timeout=timeout).close()
         return True
