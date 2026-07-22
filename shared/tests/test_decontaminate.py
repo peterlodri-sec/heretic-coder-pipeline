@@ -76,3 +76,26 @@ def test_load_verified_keys_shapes_from_dataset(monkeypatch):
     ids, rc = load_verified_keys()
     assert ids == frozenset({"a__a-1", "b__b-2", "c__c-3"})
     assert rc == frozenset({("a/a", "c1"), ("b/b", "c2")})  # empty repo/commit skipped
+
+
+# --- repo-level blocklist (Nebius/Skywork practice, per the SWE research report) --
+
+def test_blocklist_repo_dropped_even_without_id_match():
+    from shared.dataprep.decontaminate import is_contaminated, BLOCKLIST_REPOS
+    assert "django/django" in BLOCKLIST_REPOS
+    # a fresh issue in a Verified source repo -> still dropped (fix can leak)
+    row = {"instance_id": "django__django-000001", "repo": "django/django",
+           "base_commit": "deadbeef"}
+    assert is_contaminated(row, frozenset(), frozenset())  # no id/commit match needed
+
+
+def test_blocklist_can_be_disabled():
+    from shared.dataprep.decontaminate import is_contaminated
+    row = {"instance_id": "x", "repo": "django/django", "base_commit": "c"}
+    assert not is_contaminated(row, frozenset(), frozenset(), blocklist_repos=frozenset())
+
+
+def test_non_blocklist_repo_survives():
+    from shared.dataprep.decontaminate import is_contaminated
+    row = {"instance_id": "swegym__ok-1", "repo": "some/other-repo", "base_commit": "c"}
+    assert not is_contaminated(row, frozenset(), frozenset())

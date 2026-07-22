@@ -24,6 +24,19 @@ VERIFIED_DATASET = "princeton-nlp/SWE-bench_Verified"
 VERIFIED_SPLIT = "test"
 ALLOW_UNVERIFIED_ENV = "SWE_DECONTAM_ALLOW_UNVERIFIED"
 
+# Repo-level blocklist (Nebius/Skywork decontamination practice, confirmed by the
+# SWE deep-research report). SWE-bench Verified draws from these repos; dropping
+# EVERY training row from them — not just the exact Verified instance_ids — is the
+# safe rule, since a different issue in the same repo-at-a-nearby-commit can still
+# leak the fix. This is a coarse net on top of the exact instance_id/repo@commit
+# match below.
+BLOCKLIST_REPOS = frozenset({
+    "django/django", "matplotlib/matplotlib", "psf/requests", "pytest-dev/pytest",
+    "scikit-learn/scikit-learn", "sphinx-doc/sphinx", "sympy/sympy",
+    "astropy/astropy", "pylint-dev/pylint", "pydata/xarray", "mwaskom/seaborn",
+    "pallets/flask",
+})
+
 
 class ContaminationError(RuntimeError):
     """Raised when decontamination can't be guaranteed (fail-closed)."""
@@ -46,12 +59,16 @@ def load_verified_keys() -> tuple[frozenset, frozenset]:
     return ids, repo_commits
 
 
-def is_contaminated(row, verified_ids, verified_repo_commits) -> bool:
-    """True if ``row`` matches a SWE-bench Verified instance by id or repo@commit."""
+def is_contaminated(row, verified_ids, verified_repo_commits,
+                    blocklist_repos=BLOCKLIST_REPOS) -> bool:
+    """True if ``row`` is a decontamination hit: an exact SWE-bench Verified match
+    (by instance_id or repo@commit) OR any row from a blocklisted source repo."""
     iid = row.get("instance_id")
     if iid is not None and iid in verified_ids:
         return True
     repo, commit = row.get("repo"), row.get("base_commit")
+    if repo and blocklist_repos and repo in blocklist_repos:
+        return True  # coarse repo-level net (Nebius/Skywork practice)
     if repo and commit and (repo, commit) in verified_repo_commits:
         return True
     return False
