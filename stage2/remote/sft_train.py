@@ -14,6 +14,13 @@ os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
 MAX_SEQ_LEN = int(os.environ.get("STAGE2_MAX_SEQ_LEN", "16384"))
 BATCH = int(os.environ.get("STAGE2_BATCH", "2"))
 GRAD_ACCUM = int(os.environ.get("STAGE2_GRAD_ACCUM", "8"))
+
+# DeepSpeed ZeRO-3 sharded training (STAGE2_SHARDED=1): shards the frozen bf16 base
+# across GPUs so the ~120B model fits with training headroom (device_map can't —
+# it packs one GPU). Launched via `deepspeed run_stage2.py`; the loader loads bf16
+# under zero.Init and SFTConfig points at the ZeRO-3 json.
+SHARDED = os.environ.get("STAGE2_SHARDED") == "1"
+DS_CONFIG = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ds_zero3.json")
 # BFD example-packing: bin-pack multiple examples per row and fill to max_length,
 # so real tokens (not padding) dominate every step -> ~2x less wall-clock at fixed
 # quality (lora-speedrun record #1). "bfd" is example-boundary-aware over
@@ -51,6 +58,8 @@ def train(model_source: str, data_path: str, out_dir: str,
     # targets) is centralized in shared.train_common.
     if load_in_4bit is None:
         load_in_4bit = default_load_in_4bit(family)
+    if SHARDED:
+        load_in_4bit = False  # ZeRO-3 shards real bf16 params; bnb 4-bit isn't shardable
     model, tokenizer = load_lora_model(
         model_source, max_seq_len=MAX_SEQ_LEN, load_in_4bit=load_in_4bit,
         family=family,
@@ -72,7 +81,11 @@ def train(model_source: str, data_path: str, out_dir: str,
             per_device_train_batch_size=BATCH, gradient_accumulation_steps=GRAD_ACCUM,
             warmup_ratio=0.03, num_train_epochs=num_epochs, max_steps=max_steps,
             learning_rate=5e-5, bf16=True, lr_scheduler_type="cosine",
-            optim="adamw_8bit", logging_steps=10, output_dir=out_dir,
+            # ZeRO-3 partitions optimizer states across ranks -> plain torch AdamW
+            # (the bnb 8-bit optimizer doesn't compose with DeepSpeed param sharding).
+            optim="adamw_torch" if SHARDED else "adamw_8bit",
+            deepspeed=DS_CONFIG if SHARDED else None,
+            logging_steps=10, output_dir=out_dir,
         ),
     )
     # Mask the prompt so loss is computed on assistant responses only. Delimiters

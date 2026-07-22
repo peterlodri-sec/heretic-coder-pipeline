@@ -126,6 +126,15 @@ def _load_plain_peft(model_source: str, *, max_seq_len: int, load_in_4bit: bool,
     if getattr(tokenizer, "model_max_length", None):
         tokenizer.model_max_length = max_seq_len
 
+    # DeepSpeed ZeRO-3: shard the frozen bf16 base params ACROSS gpus (device_map
+    # can't — it packs the ~133GB model onto one gpu and OOMs at training). Under
+    # ZeRO-3 we load bf16 (no bnb — DeepSpeed shards real params, not bnb blobs)
+    # with NO device_map, and keep an HfDeepSpeedConfig alive so from_pretrained
+    # shards on load instead of each rank materializing the full 233GB.
+    if os.environ.get("STAGE2_SHARDED") == "1":
+        return _load_zero3_bf16(model_source, attn=attn, lora=lora,
+                                full_finetuning=full_finetuning, tokenizer=tokenizer)
+
     quant = None
     if load_in_4bit and not full_finetuning:
         from transformers import BitsAndBytesConfig
@@ -137,12 +146,9 @@ def _load_plain_peft(model_source: str, *, max_seq_len: int, load_in_4bit: bool,
         quantization_config=quant, device_map="auto",
         torch_dtype=torch.bfloat16, attn_implementation=attn,
     )
-    # Multi-GPU: split weights EVENLY across GPUs ("balanced"), not "auto" (packs
-    # GPU0) or "balanced_low_0" (packs the last GPU) — both left one GPU near
-    # capacity and OOM'd at step 1. With an even ~weights/n_gpus split each GPU
-    # keeps headroom for the naive-MP activations; keep the training seq short so
-    # that per-GPU activation actually fits. cpu=0 forbids CPU offload (too slow to
-    # train through) — a too-big model then fails loudly at load, not crawls.
+    # Single-GPU (or small dense model) only: device_map packs the model onto the
+    # GPU(s). For the big gpt-oss on multiple GPUs use STAGE2_SHARDED=1 (ZeRO-3)
+    # above — device_map multi-GPU packs one GPU and OOMs at training.
     n_gpus = torch.cuda.device_count()
     if n_gpus > 1:
         model_kwargs["device_map"] = os.environ.get("STAGE2_DEVICE_MAP", "balanced")
@@ -161,9 +167,47 @@ def _load_plain_peft(model_source: str, *, max_seq_len: int, load_in_4bit: bool,
     else:
         model.gradient_checkpointing_enable()
         model.enable_input_require_grads()
-    model = get_peft_model(model, LoraConfig(
+    model = get_peft_model(model, _lora_config(lora))
+    return model, tokenizer
+
+
+DS_CONFIG_PATH = os.environ.get(
+    "STAGE2_DS_CONFIG",
+    os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                 "stage2", "remote", "ds_zero3.json"),
+)
+
+
+def _lora_config(lora: "LoraSpec"):
+    from peft import LoraConfig
+    return LoraConfig(
         r=lora.r, lora_alpha=lora.alpha, lora_dropout=lora.dropout,
         target_modules=list(lora.targets), use_rslora=lora.use_rslora,
         bias="none", task_type="CAUSAL_LM",
-    ))
+    )
+
+
+def _load_zero3_bf16(model_source: str, *, attn: str, lora: "LoraSpec",
+                     full_finetuning: bool, tokenizer):
+    """Load bf16 under DeepSpeed ZeRO-3 so from_pretrained shards params on load."""
+    import torch
+    from transformers import AutoModelForCausalLM
+    from transformers.integrations import HfDeepSpeedConfig
+
+    # HfDeepSpeedConfig must exist (and stay referenced) BEFORE from_pretrained so
+    # transformers' is_deepspeed_zero3_enabled() is true and zero.Init() shards the
+    # weights across ranks as they load. Losing this ref re-materializes the full
+    # model per rank -> OOM. We stash it on the model to keep it alive.
+    dschf = HfDeepSpeedConfig(DS_CONFIG_PATH)  # noqa: F841 — keep-alive is the point
+    model = AutoModelForCausalLM.from_pretrained(
+        model_source, torch_dtype=torch.bfloat16, attn_implementation=attn,
+    )
+    model.config.use_cache = False
+    model._dschf = dschf  # keep the zero3 config alive for the Trainer handoff
+    if full_finetuning:
+        return model, tokenizer
+    from peft import get_peft_model
+    model.gradient_checkpointing_enable()
+    model.enable_input_require_grads()
+    model = get_peft_model(model, _lora_config(lora))
     return model, tokenizer
