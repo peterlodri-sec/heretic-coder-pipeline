@@ -5,8 +5,49 @@ from unittest.mock import MagicMock
 import pytest
 
 from shared.train_common import (
-    LoraSpec, LORA_TARGETS, load_lora_model, HIGH_RANK_RSLORA,
+    LoraSpec, LORA_TARGETS, load_lora_model, load_tokenizer, HIGH_RANK_RSLORA,
 )
+
+
+def _fake_transformers_tokenizers(auto_exc=None):
+    """A fake `transformers` module whose AutoTokenizer optionally raises."""
+    tfm = types.ModuleType("transformers")
+    auto = MagicMock()
+    if auto_exc is not None:
+        auto.from_pretrained.side_effect = auto_exc
+    else:
+        auto.from_pretrained.return_value = "AUTO_TOK"
+    tfm.AutoTokenizer = auto
+    ptf = MagicMock()
+    ptf.from_pretrained.return_value = "FAST_TOK"
+    tfm.PreTrainedTokenizerFast = ptf
+    return tfm, auto, ptf
+
+
+def test_load_tokenizer_uses_autotokenizer_when_it_works(monkeypatch):
+    tfm, auto, ptf = _fake_transformers_tokenizers()
+    monkeypatch.setitem(sys.modules, "transformers", tfm)
+    assert load_tokenizer("repo") == "AUTO_TOK"
+    ptf.from_pretrained.assert_not_called()
+
+
+def test_load_tokenizer_falls_back_on_tokenizers_backend(monkeypatch):
+    # The exact failure from our Heretic/unsloth gpt-oss export.
+    err = ValueError("Tokenizer class TokenizersBackend does not exist or is not "
+                     "currently imported.")
+    tfm, auto, ptf = _fake_transformers_tokenizers(auto_exc=err)
+    monkeypatch.setitem(sys.modules, "transformers", tfm)
+    assert load_tokenizer("repo") == "FAST_TOK"  # PreTrainedTokenizerFast fallback
+    ptf.from_pretrained.assert_called_once_with("repo")
+
+
+def test_load_tokenizer_reraises_unrelated_errors(monkeypatch):
+    tfm, auto, ptf = _fake_transformers_tokenizers(
+        auto_exc=OSError("repo not found"))
+    monkeypatch.setitem(sys.modules, "transformers", tfm)
+    with pytest.raises(OSError):
+        load_tokenizer("repo")
+    ptf.from_pretrained.assert_not_called()  # must not mask real load errors
 
 
 def test_high_rank_rslora_preset():
@@ -90,6 +131,7 @@ def _fake_transformers_peft():
     tok = MagicMock(model_max_length=131072)
     tfm.AutoTokenizer = MagicMock()
     tfm.AutoTokenizer.from_pretrained.return_value = tok
+    tfm.PreTrainedTokenizerFast = MagicMock()  # load_tokenizer imports it too
     tfm.AutoModelForCausalLM = MagicMock()
     tfm.AutoModelForCausalLM.from_pretrained.return_value = MagicMock()
     tfm.BitsAndBytesConfig = MagicMock(return_value="BNB")

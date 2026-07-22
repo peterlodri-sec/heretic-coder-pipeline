@@ -16,9 +16,11 @@ def load_model(model_path):
     batched generation can left-pad.
     """
     import torch  # noqa: F401  (ensures torch is importable before transformers)
-    from transformers import AutoModelForCausalLM, AutoTokenizer
+    from transformers import AutoModelForCausalLM
 
-    tokenizer = AutoTokenizer.from_pretrained(model_path)
+    from shared.train_common import load_tokenizer  # AutoTokenizer + TokenizersBackend fallback
+
+    tokenizer = load_tokenizer(model_path)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
     model = AutoModelForCausalLM.from_pretrained(

@@ -78,6 +78,27 @@ def _load_unsloth(model_source: str, *, max_seq_len: int, load_in_4bit: bool,
     return model, tokenizer
 
 
+def load_tokenizer(model_source: str):
+    """AutoTokenizer with a fallback for checkpoints whose tokenizer_config names a
+    tokenizer_class the pinned transformers can't resolve.
+
+    Heretic/unsloth exports of gpt-oss write `"tokenizer_class": "TokenizersBackend"`,
+    which AutoTokenizer rejects with "Tokenizer class TokenizersBackend does not
+    exist or is not currently imported" — but the underlying tokenizer.json is a
+    standard fast tokenizer, so we load PreTrainedTokenizerFast directly, bypassing
+    the auto-class registry lookup (verified locally: vocab 199998, eos '<|return|>',
+    chat_template intact, clean encode/decode roundtrip). Only that specific
+    class-resolution failure is swallowed; any other tokenizer error re-raises.
+    """
+    from transformers import AutoTokenizer, PreTrainedTokenizerFast
+    try:
+        return AutoTokenizer.from_pretrained(model_source)
+    except Exception as error:  # noqa: BLE001 — narrowed by the message check
+        if "does not exist or is not currently imported" not in str(error):
+            raise
+        return PreTrainedTokenizerFast.from_pretrained(model_source)
+
+
 def _load_plain_peft(model_source: str, *, max_seq_len: int, load_in_4bit: bool,
                      lora: LoraSpec, full_finetuning: bool):
     """Plain transformers + bitsandbytes + PEFT path — the gpt-oss loader.
@@ -95,10 +116,10 @@ def _load_plain_peft(model_source: str, *, max_seq_len: int, load_in_4bit: bool,
     gpt-oss is out of scope here (it's what forced Heretic's direct-tensor surgery).
     """
     import torch
-    from transformers import AutoModelForCausalLM, AutoTokenizer
+    from transformers import AutoModelForCausalLM
 
     attn = os.environ.get("STAGE2_ATTN", "sdpa")  # eager | sdpa | flash_attention_2
-    tokenizer = AutoTokenizer.from_pretrained(model_source)
+    tokenizer = load_tokenizer(model_source)
     if getattr(tokenizer, "model_max_length", None):
         tokenizer.model_max_length = max_seq_len
 
