@@ -37,6 +37,15 @@ N_SAMPLES = max(1, int(os.environ.get("SWE_N_SAMPLES", "1")))
 # temperature; T=1.2 keeps diversity without the top-p collapse.
 SAMPLE_GEN_KWARGS = {"do_sample": True, "temperature": 1.2, "min_p": 0.07}
 
+# Reproduce-first (SWE_REPRO_FIRST=1): the report's #1 harness move (+5-10pp) and
+# a direct attack on the dominant failure mode — ~29% of failures are Problem-
+# Understanding, not localization. Forcing the model to first state the failing
+# behavior it must fix (a reproduction) before writing the patch makes the intended
+# spec explicit. This is the prompt-scaffold form (no in-eval execution of the
+# repro — a single-shot eval can't run the repo), so the win is the model reasoning
+# from an explicit spec, and we extract the trailing unified diff from the response.
+REPRO_FIRST = os.environ.get("SWE_REPRO_FIRST", "0") == "1"
+
 _SYSTEM = (
     "You are an expert software engineer. Given a bug report, respond with ONLY "
     "a unified diff patch (git diff format) that resolves the issue. Do not "
@@ -44,12 +53,44 @@ _SYSTEM = (
 )
 _USER = "Resolve the following issue with a unified diff patch:\n\n{problem}"
 
+_SYSTEM_REPRO = (
+    "You are an expert software engineer. Resolve the issue in two steps. FIRST, "
+    "under a '## Reproduction' heading, describe the minimal failing test or exact "
+    "buggy behavior that captures the issue — this is the specification your fix "
+    "must satisfy. THEN, under a '## Patch' heading, give the fix as a unified diff "
+    "(git diff format) inside a single ```diff fenced block. The diff MUST come "
+    "last and must make the reproduction pass."
+)
+_USER_REPRO = "Resolve the following issue. Reproduce first, then patch:\n\n{problem}"
+
 
 def _prompt_messages(problem_statement: str) -> list[dict]:
+    system, user = (_SYSTEM_REPRO, _USER_REPRO) if REPRO_FIRST else (_SYSTEM, _USER)
     return [
-        {"role": "system", "content": _SYSTEM},
-        {"role": "user", "content": _USER.format(problem=problem_statement)},
+        {"role": "system", "content": system},
+        {"role": "user", "content": user.format(problem=problem_statement)},
     ]
+
+
+def _extract_patch(text: str) -> str:
+    """Pull the unified diff out of a (possibly reasoning-prefixed) response.
+
+    Direct mode returns the text unchanged. Reproduce-first mode wraps the diff in
+    a ```diff block after a reproduction section, so take the LAST fenced diff (the
+    model may quote diffs while reasoning); fall back to the last `diff --git` span,
+    then the raw text. Always returned newline-terminated for the patch file.
+    """
+    if not REPRO_FIRST:
+        return text
+    import re
+    blocks = re.findall(r"```(?:diff|patch)?\s*\n(.*?)```", text, re.DOTALL)
+    for block in reversed(blocks):
+        if "diff --git" in block or block.lstrip().startswith(("--- ", "+++ ")):
+            return block.strip() + "\n"
+    idx = text.rfind("diff --git")
+    if idx != -1:
+        return text[idx:].strip() + "\n"
+    return text.strip() + "\n"
 
 
 def generate_candidates(model_path, model_name, limit=None):
@@ -62,14 +103,19 @@ def generate_candidates(model_path, model_name, limit=None):
     if limit is not None:
         instances = instances[:limit]
 
+    # Reproduce-first responses carry a reproduction section before the diff, so
+    # they need more room than a bare patch.
+    max_new = 2048 if REPRO_FIRST else 1024
     model, tokenizer = load_model(model_path)
     try:
         message_lists = [_prompt_messages(inst["problem_statement"]) for inst in instances]
-        slates = [chat_generate(model, tokenizer, message_lists, max_new_tokens=1024)]
+        raw = [chat_generate(model, tokenizer, message_lists, max_new_tokens=max_new)]
         for _ in range(N_SAMPLES - 1):
-            slates.append(chat_generate(model, tokenizer, message_lists,
-                                        max_new_tokens=1024,
-                                        gen_kwargs=SAMPLE_GEN_KWARGS))
+            raw.append(chat_generate(model, tokenizer, message_lists,
+                                     max_new_tokens=max_new,
+                                     gen_kwargs=SAMPLE_GEN_KWARGS))
+        # Extract the unified diff from each generated response (no-op in direct mode).
+        slates = [[_extract_patch(t) for t in slate] for slate in raw]
     finally:
         # Free the model before the Docker harness runs (and before any next eval
         # loads its own) — 2xH200 cannot hold two 120B models at once.

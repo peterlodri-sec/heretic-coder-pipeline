@@ -419,3 +419,36 @@ def test_swebench_eval_dataset_is_env_configurable(monkeypatch):
         monkeypatch.delenv("SWE_EVAL_SPLIT", raising=False)
         importlib.reload(eval_swebench)  # restore default for other tests
     assert eval_swebench.DATASET == "princeton-nlp/SWE-bench_Verified"
+
+
+def test_swebench_repro_first_prompt_and_extraction(monkeypatch):
+    from shared.eval import swebench as sb
+    monkeypatch.setattr(sb, "REPRO_FIRST", True)
+    # prompt switches to reproduce-first (spec-before-patch)
+    sysmsg = sb._prompt_messages("the bug")[0]["content"]
+    assert "Reproduction" in sysmsg and "Patch" in sysmsg
+    # extraction takes the LAST fenced diff (models quote diffs while reasoning)
+    resp = ("## Reproduction\nThe call returns None.\nEarlier draft:\n"
+            "```diff\nwrong one\n```\n"
+            "## Patch\n```diff\ndiff --git a/x.py b/x.py\n--- a/x.py\n+++ b/x.py\n"
+            "@@ -1 +1 @@\n-a\n+b\n```\n")
+    patch = sb._extract_patch(resp)
+    assert patch.startswith("diff --git a/x.py")
+    assert "wrong one" not in patch  # the reasoning draft is not the submission
+
+
+def test_swebench_extract_patch_fallbacks(monkeypatch):
+    from shared.eval import swebench as sb
+    monkeypatch.setattr(sb, "REPRO_FIRST", True)
+    # no fence but a git-diff span -> from the last 'diff --git'
+    got = sb._extract_patch("thoughts...\ndiff --git a/f b/f\n@@\n-x\n+y")
+    assert got.startswith("diff --git a/f") and got.endswith("\n")
+    # nothing diff-like -> raw, newline-terminated (harness will just fail to apply)
+    assert sb._extract_patch("no patch here").endswith("\n")
+
+
+def test_swebench_direct_mode_unchanged(monkeypatch):
+    from shared.eval import swebench as sb
+    monkeypatch.setattr(sb, "REPRO_FIRST", False)
+    assert sb._extract_patch("diff --git a b") == "diff --git a b"   # passthrough
+    assert "ONLY" in sb._prompt_messages("x")[0]["content"]           # direct prompt
