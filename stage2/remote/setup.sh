@@ -23,4 +23,10 @@ UV_PIP=(uv pip install --system)
 "${UV_PIP[@]}" torch==2.7.1 torchvision==0.22.1 torchaudio==2.7.1 xformers==0.0.31.post1 \
   --index-url https://download.pytorch.org/whl/cu126
 "${UV_PIP[@]}" -r requirements.txt
+# MXFP4 quantize-on-load needs triton>=3.4.0, but torch 2.7.1 pins triton==3.3.1.
+# Override just triton (--no-deps so torch's pin doesn't drag it back / conflict);
+# triton is a standalone compiler and 3.4.0 runs the mxfp4 kernels on torch 2.7.1.
+# No-op for non-mxfp4 runs. [verify on GPU: if 3.4.0 breaks torch 2.7.1 kernels,
+# fall back to torch 2.8.0 which ships triton 3.4.0.]
+"${UV_PIP[@]}" --no-deps triton==3.4.0
 echo "stage2 setup complete"
