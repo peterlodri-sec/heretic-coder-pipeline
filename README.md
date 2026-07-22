@@ -1,5 +1,7 @@
 # heretic → SFT → RFT → RLVR — an open uncensored SWE coding-agent pipeline
 
+![heretic post-training pipeline banner](assets/pipeline-banner.png)
+
 A reproducible post-training pipeline that turns an open-weight base model into a
 strong autonomous software-engineering agent: uncensored (refusal directions
 abliterated), tool-call-accurate, with coding ability recovered through
@@ -81,6 +83,8 @@ against billing leaks). Exit `0` iff the stage verdict is `PASS`.
   a 2026 SOTA-techniques sweep; see `shared/train_common.py`, `stage2/remote/`.
 
 ## Verdict gate
+
+![heretic model verdict dashboard](assets/verdict-dashboard.png)
 
 Each trained stage gates on a capability check (`shared/verdict.py`):
 
