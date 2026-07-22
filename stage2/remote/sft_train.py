@@ -42,6 +42,7 @@ def train(model_source: str, data_path: str, out_dir: str,
         load_in_4bit = default_load_in_4bit(family)
     model, tokenizer = load_lora_model(
         model_source, max_seq_len=MAX_SEQ_LEN, load_in_4bit=load_in_4bit,
+        family=family,
     )
     # Unsloth's patched SFTTrainer does NOT auto chat-template a `messages`
     # column (it raises "You must specify a formatting_func"). Render each

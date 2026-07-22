@@ -4,10 +4,12 @@ from unittest.mock import MagicMock, patch
 
 
 def _install_fakes():
-    unsloth = types.ModuleType("unsloth")
-    unsloth.FastLanguageModel = MagicMock()
-    unsloth.FastLanguageModel.from_pretrained.return_value = ("model", "tok")
-    unsloth.FastLanguageModel.get_peft_model.return_value = "peft_model"
+    # The loader (Unsloth vs plain-transformers, family-gated) is unit-tested in
+    # shared/tests/test_train_common.py; here we mock it so sft_train's own wiring
+    # (dataset templating, SFTConfig knobs, response masking) is what's under test.
+    train_common = types.ModuleType("shared.train_common")
+    train_common.load_lora_model = MagicMock(return_value=("model", "tok"))
+    unsloth = types.ModuleType("unsloth")  # imported for its patch side effect
     chat_templates = types.ModuleType("unsloth.chat_templates")
     # returns the trainer it's handed (response-only masking wrapper)
     chat_templates.train_on_responses_only = MagicMock(side_effect=lambda tr, **kw: tr)
@@ -19,7 +21,8 @@ def _install_fakes():
     ds = MagicMock()
     ds.map.return_value = ds  # .map(...) -> dataset with a `text` column
     datasets.load_dataset = MagicMock(return_value=ds)
-    return {"unsloth": unsloth, "unsloth.chat_templates": chat_templates,
+    return {"shared.train_common": train_common, "unsloth": unsloth,
+            "unsloth.chat_templates": chat_templates,
             "trl": trl, "datasets": datasets}
 
 
@@ -40,30 +43,34 @@ def test_train_returns_loss_model_tokenizer_tuple():
     fakes, result = _run_train()
     loss, model, tok = result
     assert loss == 0.42
-    assert model == "peft_model"
+    assert model == "model"
     assert tok == "tok"
-    fakes["unsloth"].FastLanguageModel.from_pretrained.assert_called_once()
+    fakes["shared.train_common"].load_lora_model.assert_called_once()
 
 
 def test_gpt_oss_default_loads_in_4bit():
-    # Default family is gpt_oss -> MoE-QLoRA 4-bit (fits 120B on 1x H200).
+    # Default family is gpt_oss -> MoE-QLoRA 4-bit (fits 120B on 1x H200), and it
+    # must route through the loader with family='gpt_oss' (the plain-transformers
+    # path — Unsloth's loader leaves gpt-oss router keys uninitialized).
     fakes, _ = _run_train()
-    kwargs = fakes["unsloth"].FastLanguageModel.from_pretrained.call_args.kwargs
-    assert kwargs["load_in_4bit"] is True
-    assert kwargs["model_name"] == "model_src"
+    call = fakes["shared.train_common"].load_lora_model.call_args
+    assert call.args[0] == "model_src"
+    assert call.kwargs["load_in_4bit"] is True
+    assert call.kwargs["family"] == "gpt_oss"
 
 
 def test_qwen_family_trains_in_16bit():
-    # The dense-32B validation path stays 16-bit bf16.
+    # The dense-32B validation path stays 16-bit bf16 (Unsloth loader).
     fakes, _ = _run_train(family="qwen")
-    kwargs = fakes["unsloth"].FastLanguageModel.from_pretrained.call_args.kwargs
-    assert kwargs["load_in_4bit"] is False
+    call = fakes["shared.train_common"].load_lora_model.call_args
+    assert call.kwargs["load_in_4bit"] is False
+    assert call.kwargs["family"] == "qwen"
 
 
 def test_explicit_load_in_4bit_overrides_family_default():
     fakes, _ = _run_train(family="gpt_oss", load_in_4bit=False)
-    kwargs = fakes["unsloth"].FastLanguageModel.from_pretrained.call_args.kwargs
-    assert kwargs["load_in_4bit"] is False
+    call = fakes["shared.train_common"].load_lora_model.call_args
+    assert call.kwargs["load_in_4bit"] is False
 
 
 def test_dataset_is_chat_templated_to_text_field():
