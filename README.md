@@ -1,5 +1,7 @@
 # heretic → SFT → RFT → RLVR — an open uncensored SWE coding-agent pipeline
 
+[![CI](https://github.com/entropy-om/heretic-coder-pipeline/actions/workflows/ci.yml/badge.svg)](https://github.com/entropy-om/heretic-coder-pipeline/actions/workflows/ci.yml)
+
 ![heretic post-training pipeline banner](assets/pipeline-banner.png)
 
 A reproducible post-training pipeline that turns an open-weight base model into a
@@ -152,12 +154,20 @@ python stage5/controller.py --mode distill     # distill | offline-kto | live-rl
 
 ## Testing
 
-Run **each stage/package in its own pytest process** — the stages share bare module
-names and would shadow each other in one interpreter:
+CI ([`ci.yml`](.github/workflows/ci.yml)) gates every push/PR to `main` — a `ruff`
+job plus one isolated `pytest` job per group. Locally:
 
 ```bash
-for g in shared pipeline stage1 stage2 stage3 stage4 stage5; do pytest $g -q; done
+make check   # ruff lint + full suite (the CI gate)
+make test    # full suite, each group in its own process
+make lint    # ruff only
 ```
+
+Each stage/package **must run in its own pytest process** — the stages share bare
+module names (`dataprep` / `enums` / `status_io`) and would shadow each other in
+one interpreter. `make test` does one process per group
+(`shared stage1..5 frontier pipeline`) with only the light module-load deps
+installed (`vastai` / `pexpect` / `pyyaml`); the heavy ML stack is mocked.
 
 ## Models (Hugging Face)
 
