@@ -125,7 +125,7 @@ def _evaluate(merged: str, base: str, check_swebench: bool) -> dict:
     return json.loads(lines[-1][len("METRICS_JSON "):])
 
 
-PIPELINE_URL = "https://github.com/peterlodri-sec/heretic-coder-pipeline"
+PIPELINE_URL = "https://github.com/entropy-om/heretic-coder-pipeline"
 
 
 def publish(status: Status, gguf_dir: str) -> None:

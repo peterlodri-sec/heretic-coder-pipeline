@@ -10,7 +10,7 @@ pipeline_tag: text-generation
 
 # qwen2.5-coder-32b-instruct-heretic
 
-Stage 1 of the [heretic-coder-pipeline](https://github.com/peterlodri-sec/heretic-coder-pipeline):
+Stage 1 of the [heretic-coder-pipeline](https://github.com/entropy-om/heretic-coder-pipeline):
 `Qwen/Qwen2.5-Coder-32B-Instruct` with refusal directions abliterated via
 [heretic](https://github.com/p-e-w/heretic) — gradient-free weight surgery
 (orthogonalizing `attn.o_proj` + `mlp.down_proj` against per-layer refusal
@@ -31,6 +31,6 @@ refuses, across all domains, not just coding. Use responsibly and only where you
 are authorized to. Weights are private/gated.
 
 ## Links
-- Pipeline: <https://github.com/peterlodri-sec/heretic-coder-pipeline>
+- Pipeline: <https://github.com/entropy-om/heretic-coder-pipeline>
 - Next stage: [qwen2.5-coder-32b-instruct-heretic-sft](qwen2.5-coder-32b-instruct-heretic-sft.md)
 - Frontier target: [gpt-oss-120b-heretic](gpt-oss-120b-heretic.md)

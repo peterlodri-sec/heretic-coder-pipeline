@@ -184,7 +184,7 @@ def fail(status: Status, message: str) -> None:
                   error=message, log_tail=tail(HERETIC_LOG_PATH))
 
 
-PIPELINE_URL = "https://github.com/peterlodri-sec/heretic-coder-pipeline"
+PIPELINE_URL = "https://github.com/entropy-om/heretic-coder-pipeline"
 
 
 def publish(status: Status) -> None:

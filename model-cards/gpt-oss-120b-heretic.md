@@ -13,7 +13,7 @@ pipeline_tag: text-generation
 
 # gpt-oss-120b-heretic (frontier chain)
 
-The frontier target of the [heretic-coder-pipeline](https://github.com/peterlodri-sec/heretic-coder-pipeline):
+The frontier target of the [heretic-coder-pipeline](https://github.com/entropy-om/heretic-coder-pipeline):
 `openai/gpt-oss-120b` (117B total / 5.1B active MoE, harmony format, Apache-2.0)
 put through the full chain. **Status: configured, pending run** — the harness is
 built and verified (301 tests); numbers below are populated after the run.
@@ -36,7 +36,7 @@ built and verified (301 tests); numbers below are populated after the run.
 
 ## Evaluation
 _Pending the run._ Gated on refusal_rate / humaneval_delta / bfcl_accuracy /
-swebench_resolve (see [pipeline verdict](https://github.com/peterlodri-sec/heretic-coder-pipeline#verdict-gate)).
+swebench_resolve (see [pipeline verdict](https://github.com/entropy-om/heretic-coder-pipeline#verdict-gate)).
 
 ## Risks & limitations
 Safety guardrails **removed** — general-purpose non-refusal, capable, and agentic.
@@ -44,5 +44,5 @@ Higher risk than a plain decensored chat model; use responsibly and only where
 authorized. Weights private/gated.
 
 ## Links
-- Pipeline: <https://github.com/peterlodri-sec/heretic-coder-pipeline>
+- Pipeline: <https://github.com/entropy-om/heretic-coder-pipeline>
 - Validation baseline: [qwen2.5-coder-32b-instruct-heretic-sft](qwen2.5-coder-32b-instruct-heretic-sft.md)

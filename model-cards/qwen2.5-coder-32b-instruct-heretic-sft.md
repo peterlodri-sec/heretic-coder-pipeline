@@ -12,7 +12,7 @@ pipeline_tag: text-generation
 
 # qwen2.5-coder-32b-instruct-heretic-sft
 
-Stage 2 of the [heretic-coder-pipeline](https://github.com/peterlodri-sec/heretic-coder-pipeline):
+Stage 2 of the [heretic-coder-pipeline](https://github.com/entropy-om/heretic-coder-pipeline):
 LoRA SFT (Unsloth + TRL) of the [abliterated 32B base](qwen2.5-coder-32b-instruct-heretic.md)
 on agentic SWE + tool-calling data. Serves as the **validation baseline** that
 de-risks the gpt-oss-120b frontier run.
@@ -42,6 +42,6 @@ Safety guardrails **removed** (see refusal rate). General-purpose non-refusal, n
 coding-only. Use responsibly and only where authorized. Weights private/gated.
 
 ## Links
-- Pipeline: <https://github.com/peterlodri-sec/heretic-coder-pipeline>
+- Pipeline: <https://github.com/entropy-om/heretic-coder-pipeline>
 - Previous stage: [qwen2.5-coder-32b-instruct-heretic](qwen2.5-coder-32b-instruct-heretic.md)
 - Frontier target: [gpt-oss-120b-heretic](gpt-oss-120b-heretic.md)

@@ -103,7 +103,7 @@ def _evaluate(check_swebench: bool) -> dict:
     return _json.loads(lines[-1][len("METRICS_JSON "):])
 
 
-PIPELINE_URL = "https://github.com/peterlodri-sec/heretic-coder-pipeline"
+PIPELINE_URL = "https://github.com/entropy-om/heretic-coder-pipeline"
 
 
 def publish(status: Status) -> None:

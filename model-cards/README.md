@@ -1,7 +1,7 @@
 # Model cards
 
 Documentation for the models produced by the
-[heretic-coder-pipeline](https://github.com/peterlodri-sec/heretic-coder-pipeline)
+[heretic-coder-pipeline](https://github.com/entropy-om/heretic-coder-pipeline)
 (`heretic → SFT → RFT → RLVR`). **Weights are private/gated** — these cards
 document method + evaluation only.
 
@@ -18,4 +18,4 @@ document method + evaluation only.
   loop (gated).
 
 Pipeline source, design, and reproduction:
-<https://github.com/peterlodri-sec/heretic-coder-pipeline>
+<https://github.com/entropy-om/heretic-coder-pipeline>
