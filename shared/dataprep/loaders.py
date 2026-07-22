@@ -28,6 +28,16 @@ def load_swebench_rows():
     return load_dataset("princeton-nlp/SWE-bench_Verified", split="test")
 
 
+def load_swegym_rows():
+    from datasets import load_dataset
+    # SWE-Gym: real GitHub task instances built as a TRAINING substrate — each has
+    # a gold `patch` + executable tests (FAIL_TO_PASS / PASS_TO_PASS). Disjoint
+    # from SWE-bench Verified by construction, but the source still runs rows
+    # through the decontamination guard as a hard backstop. cols: instance_id,
+    # repo, base_commit, problem_statement, patch, test_patch, hints_text.
+    return load_dataset("SWE-Gym/SWE-Gym", split="train")
+
+
 def load_verifiable_coding_rows():
     # Coding problems that ship WITH executable tests — the substrate for stage4
     # RFT filtering + stage5 RLVR rewards (reward = fraction of tests passing).

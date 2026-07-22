@@ -14,6 +14,7 @@ import verdict
 from dataprep import pipeline as dataprep_pipeline
 from dataprep.sources.crabcc import CrabccSource
 from dataprep.sources.magicoder import MagicoderSource
+from dataprep.sources.swegym import SWEGymSource
 from dataprep.sources.toolace import ToolACESource
 from dataprep.sources.xlam import XLAMSource
 from enums import Stage
@@ -56,11 +57,21 @@ def tail(path: str, n_chars: int = 4000) -> str:
         return f.read().decode("utf-8", errors="replace")
 
 
+# SWE-Gym (issue -> gold diff) SFT data is OFF by default so it never silently
+# changes the training mix; opt in per-run with STAGE2_INCLUDE_SWEGYM=1 once the
+# mix is deliberately validated. It is always decontaminated against SWE-bench
+# Verified inside the source.
+INCLUDE_SWEGYM = os.environ.get("STAGE2_INCLUDE_SWEGYM", "0") == "1"
+
+
 def _sources():
-    return [
+    sources = [
         XLAMSource(), ToolACESource(),
         MagicoderSource(), CrabccSource(trace_dir=CRABCC_TRACE_DIR),
     ]
+    if INCLUDE_SWEGYM:
+        sources.append(SWEGymSource())
+    return sources
 
 
 def _evaluate(check_swebench: bool) -> dict:

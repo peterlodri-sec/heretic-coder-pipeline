@@ -148,3 +148,29 @@ def test_swebench_source_drops_verified_and_keeps_clean_resolved():
     assert exs[0].source == "swebench"
     assert exs[0].messages[0]["content"] == "fix the bug"
     assert exs[0].messages[1]["content"] == "diff --git"
+
+
+# --- SWE-Gym source: (issue -> gold diff), decontaminated against Verified ------
+
+def test_swegym_maps_and_decontaminates():
+    from dataprep.sources.swegym import SWEGymSource
+    rows = [
+        {"instance_id": "django__django-99999", "repo": "django/django",
+         "base_commit": "beef", "problem_statement": "leak", "patch": "p"},  # Verified -> DROP
+        {"instance_id": "swegym__ok-1", "repo": "psf/requests",
+         "base_commit": "0001", "problem_statement": "Timeout not honored",
+         "patch": "diff --git a/req.py b/req.py"},                            # keep
+        {"instance_id": "swegym__nopatch", "repo": "a/b", "base_commit": "1",
+         "problem_statement": "x", "patch": ""},                             # no patch -> skip
+    ]
+    verified = (frozenset({"django__django-99999"}), frozenset())
+    with patch("shared.dataprep.loaders.load_swegym_rows", return_value=rows), \
+         patch("shared.dataprep.decontaminate.load_verified_keys", return_value=verified):
+        exs = list(SWEGymSource().examples())
+    assert len(exs) == 1
+    ex = exs[0]
+    assert ex.source == "swegym"
+    assert ex.messages[0]["role"] == "system"
+    assert ex.messages[1]["role"] == "user" and "psf/requests" in ex.messages[1]["content"]
+    assert "Timeout not honored" in ex.messages[1]["content"]
+    assert ex.messages[2]["role"] == "assistant" and ex.messages[2]["content"].startswith("diff --git")
