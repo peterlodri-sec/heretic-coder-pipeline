@@ -103,6 +103,18 @@ a run that barely changed the model, before eval or publish.
 Evals run in a **subprocess isolated** from Unsloth's monkey-patches. SWE-bench is
 heavy; `CHEAP_EVAL=1` runs a reduced subset during dev, full at the final verdict.
 
+## Pipeline Stage Gallery
+
+| Stage 1: Heretic Abliteration | Stage 2: Unsloth SFT |
+|:---:|:---:|
+| ![Stage 1: Heretic Abliteration Surgery](assets/abliteration-surgery.png) | ![Stage 2: Unsloth SFT Training](assets/sft-unsloth.png) |
+| *Direct-tensor weight surgery on MoE experts* | *High-throughput LoRA with BFD packing* |
+
+| Stage 3: RFT Verification | Stage 4: RLVR GSPO |
+|:---:|:---:|
+| ![Stage 3: RFT Sandbox Verification](assets/rft-sandbox.png) | ![Stage 4: RLVR GSPO Reward Curve](assets/rlvr-gspo.png) |
+| *Execution-feedback verifier loops* | *Sequence-level importance sampling RL* |
+
 ## Layout
 
 ```
