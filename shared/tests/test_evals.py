@@ -401,3 +401,21 @@ def test_swebench_gen_kwargs_forwarded_for_sampling():
     import inspect
     from shared.eval._model import chat_generate
     assert "gen_kwargs" in inspect.signature(chat_generate).parameters
+
+
+def test_swebench_eval_dataset_is_env_configurable(monkeypatch):
+    # Enables the report's contamination-free DEV eval: point the SAME harness at
+    # SWE-rebench for iteration, keep Verified for the final verdict.
+    import importlib
+    from shared.eval import swebench as eval_swebench
+    monkeypatch.setenv("SWE_EVAL_DATASET", "nebius/SWE-rebench")
+    monkeypatch.setenv("SWE_EVAL_SPLIT", "test")
+    importlib.reload(eval_swebench)
+    try:
+        assert eval_swebench.DATASET == "nebius/SWE-rebench"
+        assert eval_swebench.SPLIT == "test"
+    finally:
+        monkeypatch.delenv("SWE_EVAL_DATASET", raising=False)
+        monkeypatch.delenv("SWE_EVAL_SPLIT", raising=False)
+        importlib.reload(eval_swebench)  # restore default for other tests
+    assert eval_swebench.DATASET == "princeton-nlp/SWE-bench_Verified"

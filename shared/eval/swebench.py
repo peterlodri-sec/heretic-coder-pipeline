@@ -23,8 +23,13 @@ import time
 
 from shared.eval._model import chat_generate, free_model, load_model
 
-DATASET = "princeton-nlp/SWE-bench_Verified"
-SPLIT = "test"
+# Eval dataset is env-configurable so the SAME harness can run the contamination-
+# free DEV eval the research report recommends: SWE-bench Verified predates ~94%
+# of frontier cutoffs and is saturated/leaky, so iterate on SWE-rebench (fresh,
+# post-cutoff, SWE-bench-harness-compatible schema) and reserve Verified for the
+# final verdict. e.g. SWE_EVAL_DATASET=nebius/SWE-rebench SWE_EVAL_SPLIT=test.
+DATASET = os.environ.get("SWE_EVAL_DATASET", "princeton-nlp/SWE-bench_Verified")
+SPLIT = os.environ.get("SWE_EVAL_SPLIT", "test")
 
 # Best-of-N knobs. N=1 -> the original single greedy pass (default, unchanged).
 N_SAMPLES = max(1, int(os.environ.get("SWE_N_SAMPLES", "1")))

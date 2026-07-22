@@ -85,7 +85,9 @@ def deploy_and_launch(instance: dict, model: str, max_steps: int, crabcc_traces:
                        "STAGE2_GRAD_ACCUM", "STAGE2_INCLUDE_SWEGYM",
                        "STAGE2_INCLUDE_NEBIUS", "STAGE2_MXFP4", "STAGE2_SHARDED",
                        "STAGE2_DEVICE_MAP", "STAGE2_MAX_MEM_GIB",
-                       "PYTORCH_CUDA_ALLOC_CONF")
+                       "PYTORCH_CUDA_ALLOC_CONF",
+                       # eval knobs (best-of-N headroom + contamination-free dev set)
+                       "SWE_N_SAMPLES", "SWE_EVAL_DATASET", "SWE_EVAL_SPLIT")
         + "tmux new-session -d -s sft 'python3 run_stage2.py'"
     )
     return host, port
