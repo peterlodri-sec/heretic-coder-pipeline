@@ -2,7 +2,18 @@
 # function-local so the module imports without a GPU for unit tests.
 import os
 
-MAX_SEQ_LEN = 16384
+# Reduce allocator fragmentation before torch initializes CUDA — the gpt-oss
+# plain-bnb path keeps the fused MoE experts in bf16 (bnb only 4-bits nn.Linear),
+# so the resident model is large and training has little headroom on one H200.
+os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+
+# Sequence length + batch are env-tunable so a memory-tight gpt-oss run can trade
+# them down (STAGE2_MAX_SEQ_LEN=4096 STAGE2_BATCH=1) without a code change — the
+# 120B with unquantized experts barely fits one H200, so activation memory is the
+# lever. Effective batch = BATCH * GRAD_ACCUM is held at 16 by default.
+MAX_SEQ_LEN = int(os.environ.get("STAGE2_MAX_SEQ_LEN", "16384"))
+BATCH = int(os.environ.get("STAGE2_BATCH", "2"))
+GRAD_ACCUM = int(os.environ.get("STAGE2_GRAD_ACCUM", "8"))
 # BFD example-packing: bin-pack multiple examples per row and fill to max_length,
 # so real tokens (not padding) dominate every step -> ~2x less wall-clock at fixed
 # quality (lora-speedrun record #1). "bfd" is example-boundary-aware over
@@ -58,7 +69,7 @@ def train(model_source: str, data_path: str, out_dir: str,
             dataset_text_field="text", max_length=MAX_SEQ_LEN,
             packing=PACKING, packing_strategy=PACKING_STRATEGY,
             neftune_noise_alpha=NEFTUNE_ALPHA or None,
-            per_device_train_batch_size=2, gradient_accumulation_steps=8,
+            per_device_train_batch_size=BATCH, gradient_accumulation_steps=GRAD_ACCUM,
             warmup_ratio=0.03, num_train_epochs=num_epochs, max_steps=max_steps,
             learning_rate=5e-5, bf16=True, lr_scheduler_type="cosine",
             optim="adamw_8bit", logging_steps=10, output_dir=out_dir,

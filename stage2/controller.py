@@ -29,6 +29,18 @@ PROVISION_DISK_GB = 400  # base model + 5 datasets + LoRA + gguf export
 SSH_USER = "root"
 
 
+def _forward_env(*names: str) -> str:
+    """Shell env-prefix for the launch command, including only vars actually set in
+    the controller's environment — unset ones fall back to the remote code
+    defaults. Values are shell-escaped."""
+    import shlex
+    return "".join(
+        f"{name}={shlex.quote(val)} "
+        for name in names
+        if (val := os.environ.get(name)) is not None
+    )
+
+
 def deploy_and_launch(instance: dict, model: str, max_steps: int, crabcc_traces: str,
                       check_swebench: bool, family: str = "gpt_oss"):
     host = f"{SSH_USER}@{instance['ssh_host']}"
@@ -62,7 +74,13 @@ def deploy_and_launch(instance: dict, model: str, max_steps: int, crabcc_traces:
         # still unverified. NEFTune off by default.
         f"STAGE2_PACKING='{os.environ.get('STAGE2_PACKING', '1')}' "
         f"STAGE2_NEFTUNE='{os.environ.get('STAGE2_NEFTUNE', '0')}' "
-        "tmux new-session -d -s sft 'python3 run_stage2.py'"
+        # Memory / attention knobs for the gpt-oss plain-bnb path (experts stay
+        # bf16 -> tight on one H200). Only forwarded when set locally, so code
+        # defaults (eager attn, seq 16384, batch 2) apply otherwise.
+        + _forward_env("STAGE2_ATTN", "STAGE2_MAX_SEQ_LEN", "STAGE2_BATCH",
+                       "STAGE2_GRAD_ACCUM", "STAGE2_INCLUDE_SWEGYM",
+                       "PYTORCH_CUDA_ALLOC_CONF")
+        + "tmux new-session -d -s sft 'python3 run_stage2.py'"
     )
     return host, port
 
