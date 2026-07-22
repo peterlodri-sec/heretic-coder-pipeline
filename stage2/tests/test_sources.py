@@ -126,3 +126,25 @@ def test_crabcc_reads_local_traces():
     contents = [m["content"] for m in render_for_family(msgs, "qwen")]
     assert any("<tool_call>" in c for c in contents)
     assert any("<tool_response>" in c for c in contents)
+
+
+# --- SWEBench source: HARD-decontaminated against SWE-bench Verified -----------
+
+def test_swebench_source_drops_verified_and_keeps_clean_resolved():
+    from dataprep.sources.swebench import SWEBenchSource
+    rows = [
+        {"instance_id": "django__django-99999", "problem_statement": "leak",
+         "patch": "p", "resolved": True},                       # Verified -> DROP
+        {"instance_id": "swegym__x-1", "problem_statement": "fix the bug",
+         "patch": "diff --git", "resolved": True},              # clean, resolved -> keep
+        {"instance_id": "swegym__x-2", "problem_statement": "q",
+         "patch": "p2", "resolved": False},                     # clean but unresolved -> skip
+    ]
+    verified = (frozenset({"django__django-99999"}), frozenset())
+    with patch("shared.dataprep.loaders.load_swebench_rows", return_value=rows), \
+         patch("shared.dataprep.decontaminate.load_verified_keys", return_value=verified):
+        exs = list(SWEBenchSource().examples())
+    assert len(exs) == 1
+    assert exs[0].source == "swebench"
+    assert exs[0].messages[0]["content"] == "fix the bug"
+    assert exs[0].messages[1]["content"] == "diff --git"
