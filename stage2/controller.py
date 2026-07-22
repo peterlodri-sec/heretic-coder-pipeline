@@ -24,8 +24,13 @@ REMOTE_LOG_PATH = f"{REMOTE_ROOT}/remote/sft_run.log"
 POLL_INTERVAL_SECONDS = 300
 SETUP_TIMEOUT_SECONDS = 1800  # unsloth + trl + transformers + datasets install is heavy
 PROVISION_LABEL = "heretic-sft"
-PROVISION_QUERY = "gpu_name=H200 disk_space>=400 rentable=true"  # 141GB -> bf16 LoRA + ~1.4x faster
-PROVISION_DISK_GB = 400  # base model + 5 datasets + LoRA + gguf export
+# 2x H200: gpt-oss's fused MoE experts can't be 4-bit-quantized by bitsandbytes
+# (bnb only quantizes nn.Linear), so they stay bf16 -> ~138GB resident, which
+# leaves no training headroom on ONE 141GB H200 (runs #4-5 OOM'd at step 1).
+# device_map="auto" shards the weights across two H200s (~280GB) with ample room
+# for activations. num_gpus>=2 same-host so the shard is NVLink-local.
+PROVISION_QUERY = "gpu_name=H200 num_gpus>=2 disk_space>=500 rentable=true"
+PROVISION_DISK_GB = 500  # 218GB bf16 model + 5 datasets + LoRA + gguf export
 SSH_USER = "root"
 
 
