@@ -14,12 +14,18 @@ orchestrator chains them.
 format, Apache-2.0). `Qwen2.5-Coder-32B` is the cheap validation baseline (the
 whole harness is model-family-aware and runs either).
 
-> **Status:** harness complete and verified — 300+ unit tests, GPU-free imports,
-> per-stage isolation. The **gpt-oss-120b Stage-1 abliteration is running** on
-> 2×H200 (verified live to abliterate the fused MoE experts, not just `o_proj` —
-> see the fix below). The Qwen2.5-Coder-32B baseline is **shipped** through
-> abliteration + SFT (`PeetPedro/qwen2.5-coder-32b-instruct-heretic-sft`). Heavy
-> training/eval libs are lazy-imported and mocked in tests — see
+> **Status (entropy-om IP):** harness complete, **CI-gated** (ruff + isolated
+> per-stage pytest, 390+ tests) and branch-protected. The **gpt-oss-120b flagship
+> is paused** on a genuine wall — its fused 3-D MoE experts won't 4-bit-quantize
+> (neither bitsandbytes nor mxfp4-on-load), so training it needs ZeRO-3 sharding +
+> adapter-only publish (core committed). The pipeline runs **unchanged on a dense
+> base** — `Qwen2.5-Coder-32B` via the Unsloth path fits 1×H200 and *actually
+> completes* (a fresh abliterated-base SWE-SFT run is live). **SWE-bench levers
+> shipped:** fail-closed decontamination, trajectory SFT data (Nebius 67K +
+> SWE-Gym), best-of-N eval (pass@1 gate / pass@N headroom), reproduce-first, and
+> SWE-rebench as a contamination-free dev eval — see the
+> [SWE-bench research + what we shipped](https://instructure.atlassian.net/wiki/spaces/PLDJ/pages/88794333362).
+> Heavy training/eval libs are lazy-imported and mocked in tests — see
 > [Before a real run](#before-a-real-run).
 
 ## Pipeline
