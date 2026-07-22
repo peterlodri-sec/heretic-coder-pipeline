@@ -185,7 +185,7 @@ def test_gpt_oss_multi_gpu_caps_per_gpu_memory(monkeypatch):
     load_lora_model("m", max_seq_len=4096, load_in_4bit=True, family="gpt_oss")
     fp = tfm.AutoModelForCausalLM.from_pretrained.call_args.kwargs
     # keep GPU0 light so it has room for the naive-MP loss/backward overhead
-    assert fp["device_map"] == "balanced_low_0"
+    assert fp["device_map"] == "balanced"
     assert fp["max_memory"][0] == "120GiB" and fp["max_memory"][1] == "120GiB"
     assert fp["max_memory"]["cpu"] == "0GiB"       # never CPU-offload during training
 

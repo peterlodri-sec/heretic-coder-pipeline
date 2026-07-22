@@ -137,15 +137,15 @@ def _load_plain_peft(model_source: str, *, max_seq_len: int, load_in_4bit: bool,
         quantization_config=quant, device_map="auto",
         torch_dtype=torch.bfloat16, attn_implementation=attn,
     )
-    # Multi-GPU: in naive model-parallel the ACTIVATIONS + loss/backward pile onto
-    # GPU0 on top of its weight shard, so a plain even split still OOMs GPU0 at the
-    # first step (~133GB) while the other GPUs have room. "balanced_low_0"
-    # deliberately keeps GPU0 as light as possible on weights so it has headroom
-    # for that training overhead. cpu=0 forbids CPU offload (too slow to train
-    # through) — a too-big model then fails loudly at load, not crawls.
+    # Multi-GPU: split weights EVENLY across GPUs ("balanced"), not "auto" (packs
+    # GPU0) or "balanced_low_0" (packs the last GPU) — both left one GPU near
+    # capacity and OOM'd at step 1. With an even ~weights/n_gpus split each GPU
+    # keeps headroom for the naive-MP activations; keep the training seq short so
+    # that per-GPU activation actually fits. cpu=0 forbids CPU offload (too slow to
+    # train through) — a too-big model then fails loudly at load, not crawls.
     n_gpus = torch.cuda.device_count()
     if n_gpus > 1:
-        model_kwargs["device_map"] = os.environ.get("STAGE2_DEVICE_MAP", "balanced_low_0")
+        model_kwargs["device_map"] = os.environ.get("STAGE2_DEVICE_MAP", "balanced")
         per_gpu = os.environ.get("STAGE2_MAX_MEM_GIB", "120")
         model_kwargs["max_memory"] = {i: f"{per_gpu}GiB" for i in range(n_gpus)}
         model_kwargs["max_memory"]["cpu"] = "0GiB"
