@@ -127,6 +127,7 @@ def test_dense_family_passes_use_rslora(monkeypatch):
 def _fake_transformers_peft():
     torch = types.ModuleType("torch")
     torch.bfloat16 = "bf16"
+    torch.cuda = types.SimpleNamespace(device_count=lambda: 1)  # single-GPU test path
     tfm = types.ModuleType("transformers")
     tok = MagicMock(model_max_length=131072)
     tfm.AutoTokenizer = MagicMock()
@@ -174,6 +175,24 @@ def test_gpt_oss_uses_plain_transformers_peft_4bit(monkeypatch):
     assert tok.model_max_length == 16384  # clamped to max_seq_len
     # gpt-oss REQUIRES eager: it has no sdpa kernel in transformers 4.56.2.
     assert fp["attn_implementation"] == "eager"
+
+
+def test_gpt_oss_multi_gpu_caps_per_gpu_memory(monkeypatch):
+    tfm, peft, tok = _install_plain(monkeypatch)
+    # simulate 2 GPUs so the balanced-memory path engages
+    import sys
+    sys.modules["torch"].cuda = types.SimpleNamespace(device_count=lambda: 2)
+    load_lora_model("m", max_seq_len=4096, load_in_4bit=True, family="gpt_oss")
+    fp = tfm.AutoModelForCausalLM.from_pretrained.call_args.kwargs
+    mm = fp["max_memory"]
+    assert mm[0] == "85GiB" and mm[1] == "85GiB"  # capped, leaves training headroom
+    assert mm["cpu"] == "0GiB"                     # never CPU-offload during training
+
+
+def test_gpt_oss_single_gpu_no_max_memory(monkeypatch):
+    tfm, peft, tok = _install_plain(monkeypatch)  # fake device_count == 1
+    load_lora_model("m", max_seq_len=4096, load_in_4bit=True, family="gpt_oss")
+    assert "max_memory" not in tfm.AutoModelForCausalLM.from_pretrained.call_args.kwargs
 
 
 def test_gpt_oss_attn_impl_env_overrides(monkeypatch):

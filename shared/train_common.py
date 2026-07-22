@@ -133,10 +133,21 @@ def _load_plain_peft(model_source: str, *, max_seq_len: int, load_in_4bit: bool,
             load_in_4bit=True, bnb_4bit_quant_type="nf4",
             bnb_4bit_compute_dtype=torch.bfloat16, bnb_4bit_use_double_quant=True,
         )
-    model = AutoModelForCausalLM.from_pretrained(
-        model_source, quantization_config=quant, device_map="auto",
+    model_kwargs = dict(
+        quantization_config=quant, device_map="auto",
         torch_dtype=torch.bfloat16, attn_implementation=attn,
     )
+    # Multi-GPU: cap per-GPU memory so weights spread evenly and leave TRAINING
+    # headroom. device_map="auto" otherwise packs GPU0 to capacity (~133GB) and
+    # leaves GPU1 nearly empty, so GPU0 OOMs at the first step while GPU1 idles.
+    # cpu=0 forbids CPU offload (catastrophically slow during training) — if the
+    # model doesn't fit in the GPU budget it should fail loudly at load, not crawl.
+    n_gpus = torch.cuda.device_count()
+    if n_gpus > 1:
+        per_gpu = os.environ.get("STAGE2_MAX_MEM_GIB", "85")
+        model_kwargs["max_memory"] = {i: f"{per_gpu}GiB" for i in range(n_gpus)}
+        model_kwargs["max_memory"]["cpu"] = "0GiB"
+    model = AutoModelForCausalLM.from_pretrained(model_source, **model_kwargs)
     model.config.use_cache = False  # incompatible with gradient checkpointing
 
     if full_finetuning:
