@@ -25,6 +25,8 @@ def _fake_child():
 
 def _run_with(child, log_path):
     with patch.object(run_stage1, "HERETIC_LOG_PATH", log_path), \
+         patch.object(run_stage1, "HERETIC_BIN", "heretic"), \
+         patch("os.path.exists", return_value=True), \
          patch("run_stage1.pexpect.spawn", return_value=child) as spawn:
         run_stage1.run_heretic()
     return spawn
@@ -38,7 +40,7 @@ def test_run_heretic_uses_only_v110_supported_flags(tmp_path):
 
     prog = spawn.call_args.args[0]
     argv = spawn.call_args.args[1]
-    assert prog == "heretic"
+    assert prog.endswith("heretic")
     # v1.1.0 exposes pydantic-settings fields as flags; we pass these two.
     assert "--model" in argv and run_stage1.MODEL in argv
     assert "--n-trials" in argv and str(run_stage1.N_TRIALS) in argv
@@ -98,6 +100,8 @@ def test_run_heretic_raises_on_timeout(tmp_path):
     child = _fake_child()
     child.expect.side_effect = run_stage1.pexpect.TIMEOUT("timed out")
     with patch.object(run_stage1, "HERETIC_LOG_PATH", str(tmp_path / "h.log")), \
+         patch.object(run_stage1, "HERETIC_BIN", "heretic"), \
+         patch("os.path.exists", return_value=True), \
          patch("run_stage1.pexpect.spawn", return_value=child):
         with pytest.raises(run_stage1.HereticError, match="wall-clock"):
             run_stage1.run_heretic()
@@ -112,6 +116,8 @@ def test_run_heretic_raises_on_nonzero_exit(tmp_path):
 
 def test_run_heretic_raises_when_spawn_fails(tmp_path):
     with patch.object(run_stage1, "HERETIC_LOG_PATH", str(tmp_path / "h.log")), \
+         patch.object(run_stage1, "HERETIC_BIN", "heretic"), \
+         patch("os.path.exists", return_value=True), \
          patch("run_stage1.pexpect.spawn",
                side_effect=run_stage1.pexpect.ExceptionPexpect("no binary")):
         with pytest.raises(run_stage1.HereticError, match="failed to launch"):

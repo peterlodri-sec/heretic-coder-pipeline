@@ -152,4 +152,4 @@ def test_provision_uses_interruptible_flag_and_bigger_disk():
         controller.main()
     assert prov.call_args.kwargs["interruptible"] is True
     assert prov.call_args.kwargs["disk_gb"] == 650  # bf16 weights + export
-    assert "num_gpus=4" in prov.call_args.kwargs["query"]  # 4xH200: batch headroom -> faster trials
+    assert "num_gpus=2" in prov.call_args.kwargs["query"]  # 2xH200: half the price for same wall-clock

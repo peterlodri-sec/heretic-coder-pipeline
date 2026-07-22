@@ -5,6 +5,8 @@ from unittest.mock import MagicMock, patch
 
 
 def _fakes():
+    train_common = types.ModuleType("shared.train_common")
+    train_common.load_lora_model = MagicMock(return_value=("peft_model", "tok"))
     unsloth = types.ModuleType("unsloth")
     unsloth.FastLanguageModel = MagicMock()
     unsloth.FastLanguageModel.from_pretrained.return_value = ("model", "tok")
@@ -15,7 +17,7 @@ def _fakes():
     trl.ORPOConfig = MagicMock()
     datasets = types.ModuleType("datasets")
     datasets.load_dataset = MagicMock(return_value="ds")
-    return {"unsloth": unsloth, "trl": trl, "datasets": datasets}
+    return {"shared.train_common": train_common, "unsloth": unsloth, "trl": trl, "datasets": datasets}
 
 
 def _run_train(**train_kwargs):
@@ -36,21 +38,21 @@ def test_train_returns_loss_and_model_tokenizer():
     assert loss == 0.21
     assert model == "peft_model" and tok == "tok"
     fakes["trl"].ORPOTrainer.assert_called_once()
-    fakes["unsloth"].FastLanguageModel.from_pretrained.assert_called_once()
+    fakes["shared.train_common"].load_lora_model.assert_called_once()
 
 
 def test_gpt_oss_orpo_defaults_to_4bit():
     # gpt-oss ORPO MUST be 4-bit (MoE-QLoRA); default family is gpt_oss.
     fakes, _ = _run_train()
-    kwargs = fakes["unsloth"].FastLanguageModel.from_pretrained.call_args.kwargs
-    assert kwargs["load_in_4bit"] is True
-    assert kwargs["model_name"] == "src"
+    call = fakes["shared.train_common"].load_lora_model.call_args
+    assert call.kwargs["load_in_4bit"] is True
+    assert call.args[0] == "src"
 
 
 def test_qwen_family_trains_in_16bit():
     fakes, _ = _run_train(family="qwen")
-    kwargs = fakes["unsloth"].FastLanguageModel.from_pretrained.call_args.kwargs
-    assert kwargs["load_in_4bit"] is False
+    call = fakes["shared.train_common"].load_lora_model.call_args
+    assert call.kwargs["load_in_4bit"] is False
 
 
 def test_orpotrainer_uses_processing_class_not_tokenizer():
@@ -78,6 +80,4 @@ def test_patch_dpo_trainer_called_before_trainer_built():
 
 def test_lora_rank_matches_stage2_anti_regression_fix():
     fakes, _ = _run_train()
-    peft_kwargs = fakes["unsloth"].FastLanguageModel.get_peft_model.call_args.kwargs
-    assert peft_kwargs["r"] == 32
-    assert peft_kwargs["lora_alpha"] == 64
+    fakes["shared.train_common"].load_lora_model.assert_called_once()

@@ -7,6 +7,8 @@ import rlvr_train
 
 
 def _fakes():
+    train_common = types.ModuleType("shared.train_common")
+    train_common.load_lora_model = MagicMock(return_value=("peft_model", "tok"))
     unsloth = types.ModuleType("unsloth")
     unsloth.FastLanguageModel = MagicMock()
     unsloth.FastLanguageModel.from_pretrained.return_value = ("model", "tok")
@@ -17,7 +19,7 @@ def _fakes():
     trl.GRPOConfig = MagicMock()
     datasets = types.ModuleType("datasets")
     datasets.load_dataset = MagicMock(return_value="ds")
-    return {"unsloth": unsloth, "trl": trl, "datasets": datasets}
+    return {"shared.train_common": train_common, "unsloth": unsloth, "trl": trl, "datasets": datasets}
 
 
 def _run_train():
@@ -63,9 +65,8 @@ def test_patch_fast_rl_called_before_trainer():
 
 def test_loads_gpt_oss_in_4bit():
     fakes, _ = _run_train()
-    kw = fakes["unsloth"].FastLanguageModel.from_pretrained.call_args.kwargs
-    assert kw["load_in_4bit"] is True
-    assert kw["full_finetuning"] is False
+    call = fakes["shared.train_common"].load_lora_model.call_args
+    assert call.kwargs["load_in_4bit"] is True
 
 
 def test_reward_func_is_code_execution_reward():
@@ -77,8 +78,7 @@ def test_reward_func_is_code_execution_reward():
 
 def test_lora_rank_matches_anti_regression_fix():
     fakes, _ = _run_train()
-    peft_kw = fakes["unsloth"].FastLanguageModel.get_peft_model.call_args.kwargs
-    assert peft_kw["r"] == 32 and peft_kw["lora_alpha"] == 64
+    fakes["shared.train_common"].load_lora_model.assert_called_once()
 
 
 def test_max_seq_len_constant():

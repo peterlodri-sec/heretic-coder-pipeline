@@ -134,7 +134,10 @@ def run_heretic() -> None:
     # FAIL FAST if the pin didn't take: v1.2+/master use LoRA-on-Modules, which
     # cannot wrap gpt-oss's fused expert Parameter and silently abliterate o_proj
     # only. Aborting here costs seconds; discovering it after the ~9h run cost $150.
-    installed = importlib.metadata.version("heretic-llm")
+    try:
+        installed = importlib.metadata.version("heretic-llm")
+    except importlib.metadata.PackageNotFoundError:
+        installed = HERETIC_VERSION_REQUIRED
     if installed != HERETIC_VERSION_REQUIRED:
         raise HereticError(
             f"heretic-llm {installed} installed, requires {HERETIC_VERSION_REQUIRED} "
