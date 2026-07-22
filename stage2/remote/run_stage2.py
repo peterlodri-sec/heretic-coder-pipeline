@@ -14,6 +14,7 @@ import verdict
 from dataprep import pipeline as dataprep_pipeline
 from dataprep.sources.crabcc import CrabccSource
 from dataprep.sources.magicoder import MagicoderSource
+from dataprep.sources.nebius import NebiusSource
 from dataprep.sources.swegym import SWEGymSource
 from dataprep.sources.toolace import ToolACESource
 from dataprep.sources.xlam import XLAMSource
@@ -62,6 +63,9 @@ def tail(path: str, n_chars: int = 4000) -> str:
 # mix is deliberately validated. It is always decontaminated against SWE-bench
 # Verified inside the source.
 INCLUDE_SWEGYM = os.environ.get("STAGE2_INCLUDE_SWEGYM", "0") == "1"
+# Nebius verified-passing OpenHands trajectories — the dominant SWE-bench SFT
+# lever, but long-context (needs a large STAGE2_MAX_SEQ_LEN) and heavy, so opt-in.
+INCLUDE_NEBIUS = os.environ.get("STAGE2_INCLUDE_NEBIUS", "0") == "1"
 
 
 def _sources():
@@ -71,6 +75,8 @@ def _sources():
     ]
     if INCLUDE_SWEGYM:
         sources.append(SWEGymSource())
+    if INCLUDE_NEBIUS:
+        sources.append(NebiusSource())
     return sources
 
 

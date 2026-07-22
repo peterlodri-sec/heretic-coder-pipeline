@@ -28,6 +28,16 @@ def load_swebench_rows():
     return load_dataset("princeton-nlp/SWE-bench_Verified", split="test")
 
 
+def load_nebius_rows():
+    from datasets import load_dataset
+    # Multi-turn OpenHands agent trajectories (Qwen3-Coder-480B, OpenHands v0.54.0)
+    # resolving real GitHub issues — the dominant SWE-bench SFT lever (+13-26pp,
+    # per the deep-research report). cols: trajectory_id, instance_id, repo,
+    # trajectory (list of chat msgs w/ tool_calls), tools, model_patch,
+    # exit_status, resolved (int64: 1 == the trajectory's patch passed the tests).
+    return load_dataset("nebius/SWE-rebench-openhands-trajectories", split="train")
+
+
 def load_swegym_rows():
     from datasets import load_dataset
     # SWE-Gym: real GitHub task instances built as a TRAINING substrate — each has

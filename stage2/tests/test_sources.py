@@ -157,7 +157,7 @@ def test_swegym_maps_and_decontaminates():
     rows = [
         {"instance_id": "django__django-99999", "repo": "django/django",
          "base_commit": "beef", "problem_statement": "leak", "patch": "p"},  # Verified -> DROP
-        {"instance_id": "swegym__ok-1", "repo": "psf/requests",
+        {"instance_id": "swegym__ok-1", "repo": "acme/widgets",
          "base_commit": "0001", "problem_statement": "Timeout not honored",
          "patch": "diff --git a/req.py b/req.py"},                            # keep
         {"instance_id": "swegym__nopatch", "repo": "a/b", "base_commit": "1",
@@ -171,6 +171,63 @@ def test_swegym_maps_and_decontaminates():
     ex = exs[0]
     assert ex.source == "swegym"
     assert ex.messages[0]["role"] == "system"
-    assert ex.messages[1]["role"] == "user" and "psf/requests" in ex.messages[1]["content"]
+    assert ex.messages[1]["role"] == "user" and "acme/widgets" in ex.messages[1]["content"]
     assert "Timeout not honored" in ex.messages[1]["content"]
     assert ex.messages[2]["role"] == "assistant" and ex.messages[2]["content"].startswith("diff --git")
+
+
+# --- Nebius OpenHands trajectories: multi-turn, verified-passing, decontaminated -
+
+def test_nebius_maps_trajectory_and_filters_resolved():
+    from dataprep.sources.nebius import NebiusSource
+    rows = [
+        {  # resolved trajectory in a CLEAN repo -> kept + mapped
+            "instance_id": "swegym__ok-1", "repo": "some/lib", "base_commit": "c1",
+            "resolved": 1,
+            "trajectory": [
+                {"role": "system", "content": "You are a coding agent."},
+                {"role": "user", "content": "Fix the timeout bug."},
+                {"role": "assistant", "content": "I'll edit the file.",
+                 "tool_calls": [{"id": "a", "type": "function",
+                                 "function": {"name": "str_replace",
+                                              "arguments": '{"path": "x.py", "old_str": "1", "new_str": "2"}'}}]},
+                {"role": "tool", "name": "str_replace", "tool_call_id": "a",
+                 "content": "edit applied"},
+                {"role": "assistant", "content": "Done."},
+            ],
+        },
+        {"instance_id": "u", "repo": "some/lib", "base_commit": "c2", "resolved": 0,
+         "trajectory": [{"role": "user", "content": "x"}, {"role": "assistant", "content": "y"}]},  # unresolved -> skip
+        {"instance_id": "django__django-1", "repo": "django/django", "base_commit": "c",
+         "resolved": 1, "trajectory": [{"role": "user", "content": "x"}, {"role": "assistant", "content": "y"}]},  # blocklisted repo -> drop
+    ]
+    with patch("shared.dataprep.loaders.load_nebius_rows", return_value=rows), \
+         patch("shared.dataprep.decontaminate.load_verified_keys",
+               return_value=(frozenset(), frozenset())):
+        exs = list(NebiusSource().examples())
+    assert len(exs) == 1
+    ex = exs[0]
+    assert ex.source == "nebius-openhands"
+    # roles preserved, tool_call converted to neutral {name, arguments-dict}
+    asst = [m for m in ex.messages if m["role"] == "assistant" and m.get("tool_calls")][0]
+    tc = asst["tool_calls"][0]
+    assert tc["name"] == "str_replace"
+    assert tc["arguments"] == {"path": "x.py", "old_str": "1", "new_str": "2"}  # JSON-parsed
+    tool_msg = [m for m in ex.messages if m["role"] == "tool"][0]
+    assert tool_msg["name"] == "str_replace" and tool_msg["content"] == "edit applied"
+
+
+def test_nebius_keeps_unparseable_tool_args_verbatim():
+    from dataprep.sources.nebius import NebiusSource
+    rows = [{"instance_id": "ok", "repo": "a/b", "base_commit": "c", "resolved": 1,
+             "trajectory": [
+                 {"role": "user", "content": "go"},
+                 {"role": "assistant", "content": "",
+                  "tool_calls": [{"function": {"name": "run", "arguments": "not json"}}]},
+             ]}]
+    with patch("shared.dataprep.loaders.load_nebius_rows", return_value=rows), \
+         patch("shared.dataprep.decontaminate.load_verified_keys",
+               return_value=(frozenset(), frozenset())):
+        ex = list(NebiusSource().examples())[0]
+    tc = [m for m in ex.messages if m.get("tool_calls")][0]["tool_calls"][0]
+    assert tc["arguments"] == {"_raw_arguments": "not json"}
