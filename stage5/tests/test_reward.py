@@ -48,7 +48,7 @@ def test_passing_scores_higher_than_failing(monkeypatch):
     def fake(code, tests, timeout_s=30.0):
         ok = "return a + b" in code
         return {"passed": int(ok), "total": 1, "pass_rate": 1.0 if ok else 0.0,
-                "compiled": True, "timed_out": False, "error": None}
+                "compiled": True, "timed_out": False, "error": None, "execution_time_s": 0.0}
     monkeypatch.setattr(sandbox, "run_tests", fake)
 
     good = "<|channel|>analysis<|message|>x<|end|><|channel|>final<|message|>def add(a, b):\n    return a + b<|return|>"
@@ -56,13 +56,13 @@ def test_passing_scores_higher_than_failing(monkeypatch):
     r = reward.code_execution_reward(["p", "p"], [good, bad], ["t", "t"])
     assert len(r) == 2
     assert r[0] > r[1]
-    assert r[0] == pytest.approx(1.3)  # parse .1 + compiled .2 + pass 1.0
+    assert r[0] == pytest.approx(1.4)  # parse .1 + compiled .2 + pass 1.0 + fast exec .1
 
 
 def test_fractional_pass_rate_scales(monkeypatch):
     def fake(code, tests, timeout_s=30.0):
         return {"passed": 1, "total": 2, "pass_rate": 0.5,
-                "compiled": True, "timed_out": False, "error": None}
+                "compiled": True, "timed_out": False, "error": None, "execution_time_s": 0.0}
     monkeypatch.setattr(sandbox, "run_tests", fake)
     r = reward.code_execution_reward(["p"], ["def f(): return 1"], ["t"])
     assert r[0] == pytest.approx(0.1 + 0.2 + 0.5)
@@ -113,7 +113,7 @@ def test_pass_visible_pass_hidden_not_penalized(monkeypatch):
     comp = "def add(a, b):\n    return a + b"
     r = reward.code_execution_reward(["p"], [comp], ["visible"],
                                      hidden_tests=["HIDDEN suite"])
-    assert r[0] == pytest.approx(1.3)
+    assert r[0] == pytest.approx(1.4)
 
 
 # ---- bootstrap patch-similarity ---------------------------------------------

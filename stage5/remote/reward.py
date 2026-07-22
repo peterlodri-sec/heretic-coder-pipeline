@@ -127,6 +127,13 @@ def code_execution_reward(prompts, completions, tests, **kwargs) -> list[float]:
         visible_rate = float(res.get("pass_rate", 0.0))
         r += 1.0 * min(visible_rate, 1.0)
 
+        # tier 4: execution wall-time efficiency bonus (up to +0.1 for fast executions)
+        if visible_rate >= 1.0:
+            exec_time = float(res.get("execution_time_s", 0.0))
+            if exec_time >= 0:
+                efficiency_bonus = 0.1 * max(0.0, 1.0 - min(1.0, exec_time / 30.0))
+                r += efficiency_bonus
+
         # hidden holdout: pass-visible / fail-hidden -> heavy penalty
         hidden = _per_item(kwargs, i, "hidden_tests")
         if hidden:

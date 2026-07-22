@@ -44,19 +44,20 @@ _FSIZE_BYTES = 16 * 1024 * 1024        # 16 MB max file write
 # namespace so HumanEval `check(candidate)` / assert style can see the solution's
 # fns. Fractional: if any `def test_*` fns exist, run each and count individually.
 _RUNNER = r'''
-import sys, json, traceback
+import sys, json, traceback, time
 
 def _emit(d):
     sys.stdout.write("__SANDBOX_RESULT__ " + json.dumps(d) + "\n")
     sys.stdout.flush()
 
 def main():
+    t0 = time.perf_counter()
     tests = sys.stdin.read()
     try:
         code = open("solution.py", "r").read()
     except Exception as e:
         _emit({"passed": 0, "total": 1, "compiled": False,
-               "error": "cannot read solution: %r" % (e,)})
+               "execution_time_s": 0.0, "error": "cannot read solution: %r" % (e,)})
         return
     ns = {"__name__": "__solution__"}
     # phase 1: compile + exec solution
@@ -64,6 +65,7 @@ def main():
         exec(compile(code, "solution.py", "exec"), ns)
     except BaseException:
         _emit({"passed": 0, "total": 1, "compiled": False,
+               "execution_time_s": round(time.perf_counter() - t0, 4),
                "error": traceback.format_exc(limit=6)})
         return
     # phase 2: exec tests in the SAME namespace
@@ -74,6 +76,7 @@ def main():
         exec_ok = False
     funcs = [v for k, v in list(ns.items())
              if k.startswith("test_") and callable(v)]
+    elapsed = round(time.perf_counter() - t0, 4)
     if funcs:
         # fractional: count each test_* fn
         passed = 0
@@ -83,11 +86,11 @@ def main():
             except BaseException:
                 pass
         _emit({"passed": passed, "total": len(funcs),
-               "compiled": True, "error": None})
+               "compiled": True, "execution_time_s": elapsed, "error": None})
     else:
         # binary: the exec itself was the assert harness (HumanEval pass@1)
         _emit({"passed": 1 if exec_ok else 0, "total": 1,
-               "compiled": True, "error": None})
+               "compiled": True, "execution_time_s": elapsed, "error": None})
 
 main()
 '''
@@ -158,7 +161,8 @@ def _run_subprocess(code: str, tests: str, timeout_s: float) -> dict:
             except Exception:
                 pass
             return _result(0, 1, compiled=False, timed_out=True,
-                           error="wall-clock timeout after %.1fs" % timeout_s)
+                           error="wall-clock timeout after %.1fs" % timeout_s,
+                           execution_time_s=timeout_s)
 
         verdict = _parse_verdict(out)
         if verdict is None:
@@ -171,6 +175,7 @@ def _run_subprocess(code: str, tests: str, timeout_s: float) -> dict:
             int(verdict.get("passed", 0)), int(verdict.get("total", 1)),
             compiled=bool(verdict.get("compiled", False)), timed_out=False,
             error=verdict.get("error"),
+            execution_time_s=float(verdict.get("execution_time_s", 0.0)),
         )
 
 
@@ -186,12 +191,13 @@ def _kill_group(p) -> None:
 
 
 def _result(passed: int, total: int, *, compiled: bool, timed_out: bool,
-            error) -> dict:
+            error, execution_time_s: float = 0.0) -> dict:
     total = max(int(total), 0)
     passed = max(int(passed), 0)
     pass_rate = (passed / total) if total > 0 else 0.0
     return {"passed": passed, "total": total, "pass_rate": pass_rate,
-            "compiled": compiled, "timed_out": timed_out, "error": error}
+            "compiled": compiled, "timed_out": timed_out, "error": error,
+            "execution_time_s": float(execution_time_s)}
 
 
 def run_tests(code: str, tests: str, timeout_s: float = 30.0) -> dict:

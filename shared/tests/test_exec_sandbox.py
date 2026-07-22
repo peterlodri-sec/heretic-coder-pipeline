@@ -17,7 +17,7 @@ def test_module_documents_security_requirements():
 
 def test_result_dict_has_all_keys():
     res = exec_sandbox.run_tests("def f(): return 1", "assert f() == 1")
-    for key in ("passed", "total", "pass_rate", "compiled", "timed_out", "error"):
+    for key in ("passed", "total", "pass_rate", "compiled", "timed_out", "error", "execution_time_s"):
         assert key in res
 
 
