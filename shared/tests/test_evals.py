@@ -216,13 +216,14 @@ def test_swebench_resolve_rate_parses_report_and_uses_correct_cli(tmp_path, monk
         report.write_text('{"resolved_instances": 9, "total_instances": 20}')
         return MagicMock(returncode=0, stderr="")
 
+    instances = [{"instance_id": f"i-{k}", "problem_statement": "p"} for k in range(20)]
     with patch("shared.eval.swebench.shutil.which", return_value="/usr/bin/docker"), \
-         patch("shared.eval.swebench.generate_predictions",
-               return_value=str(tmp_path / "preds.jsonl")), \
+         patch("shared.eval.swebench.generate_candidates",
+               return_value=(instances, [["diff"] * 20])), \
          patch("shared.eval.swebench.subprocess.run", side_effect=fake_run):
         rate = eval_swebench.resolve_rate("model", "candidate", limit=20)
 
-    assert rate == 0.45
+    assert rate == 0.45  # pass@1: 9 resolved / 20 (report has no resolved_ids -> count fallback)
     cmd = captured["cmd"]
     assert "--predictions_path" in cmd
     assert "--run_id" in cmd
@@ -246,9 +247,10 @@ def test_swebench_resolve_rate_raises_without_docker():
 def test_swebench_resolve_rate_raises_on_harness_failure(tmp_path, monkeypatch):
     from shared.eval import swebench as eval_swebench
     monkeypatch.chdir(tmp_path)
+    instances = [{"instance_id": "i-0", "problem_statement": "p"}]
     with patch("shared.eval.swebench.shutil.which", return_value="/usr/bin/docker"), \
-         patch("shared.eval.swebench.generate_predictions",
-               return_value=str(tmp_path / "preds.jsonl")), \
+         patch("shared.eval.swebench.generate_candidates",
+               return_value=(instances, [["diff"]])), \
          patch("shared.eval.swebench.subprocess.run",
                return_value=MagicMock(returncode=1, stderr="boom")):
         try:
@@ -361,3 +363,41 @@ def test_swebench_generate_predictions_frees_model_before_harness(tmp_path, monk
         eval_swebench.generate_predictions("model", "candidate")
     # Model must be freed before the (GPU-free) Docker harness stage.
     free.assert_called_once()
+
+
+def test_swebench_best_of_n_reports_pass_at_1_and_pass_at_n(tmp_path, monkeypatch, capsys):
+    import json as _json
+    from shared.eval import swebench as eval_swebench
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(eval_swebench, "N_SAMPLES", 2)  # best-of-2
+    instances = [{"instance_id": f"i-{k}", "problem_statement": "p"} for k in range(10)]
+    slates = [["greedy"] * 10, ["sampled"] * 10]
+    # greedy resolves {i-0,i-1,i-2}; sampled resolves {i-2,i-3,i-4} -> union 5
+    resolved = {"cand0": ["i-0", "i-1", "i-2"], "cand1": ["i-2", "i-3", "i-4"]}
+
+    def fake_run(cmd, **kwargs):
+        run_id = cmd[cmd.index("--run_id") + 1]
+        preds = cmd[cmd.index("--predictions_path") + 1]
+        tag = "cand0" if "cand0" in preds else "cand1"
+        (tmp_path / f"candidate.{run_id}.json").write_text(
+            _json.dumps({"resolved_ids": resolved[tag], "total_instances": 10}))
+        return MagicMock(returncode=0, stderr="")
+
+    with patch("shared.eval.swebench.shutil.which", return_value="/usr/bin/docker"), \
+         patch("shared.eval.swebench.generate_candidates", return_value=(instances, slates)), \
+         patch("shared.eval.swebench.subprocess.run", side_effect=fake_run):
+        rate = eval_swebench.resolve_rate("model", "candidate", limit=10)
+
+    assert rate == 0.3  # gate = pass@1 (greedy slate only): 3/10
+    out = capsys.readouterr().out
+    assert "pass@1=0.3000" in out          # honest single-shot
+    assert "pass@2=0.5000" in out          # union {i-0..i-4}/10 = headroom, NOT the gate
+    assert "NOT the gate" in out
+
+
+def test_swebench_gen_kwargs_forwarded_for_sampling():
+    # best-of-N diversity relies on chat_generate forwarding sampling params.
+    import inspect
+    from shared.eval._model import chat_generate
+    assert "gen_kwargs" in inspect.signature(chat_generate).parameters

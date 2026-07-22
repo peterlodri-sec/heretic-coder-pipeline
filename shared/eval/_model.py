@@ -63,6 +63,7 @@ def chat_generate(
     batch_size=16,
     tools_per_item=None,
     reasoning_effort=None,
+    gen_kwargs=None,
 ):
     """Batched chat generation returning COMPLETIONS ONLY.
 
@@ -111,12 +112,15 @@ def chat_generate(
             inputs = tokenizer(
                 prompts, return_tensors="pt", padding=True, add_special_tokens=False
             ).to(model.device)
+            # gen_kwargs (default None) forwards sampling params (do_sample /
+            # temperature / min_p / top_p) for best-of-N diversity; omitted -> the
+            # original greedy decode, so every existing caller is unchanged.
+            generate_kwargs = {"max_new_tokens": max_new_tokens,
+                               "pad_token_id": tokenizer.pad_token_id}
+            if gen_kwargs:
+                generate_kwargs.update(gen_kwargs)
             with torch.no_grad():
-                out = model.generate(
-                    **inputs,
-                    max_new_tokens=max_new_tokens,
-                    pad_token_id=tokenizer.pad_token_id,
-                )
+                out = model.generate(**inputs, **generate_kwargs)
             gen = out[:, inputs["input_ids"].shape[1]:]
             completions.extend(
                 tokenizer.batch_decode(gen, skip_special_tokens=True)
