@@ -1,4 +1,3 @@
-import tempfile
 from unittest.mock import patch
 
 from shared import vast_ops

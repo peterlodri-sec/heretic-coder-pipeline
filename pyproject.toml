@@ -1,0 +1,36 @@
+[project]
+name = "heretic-coder-pipeline"
+version = "0.1.0"
+description = "entropy-om — abliterate → SFT → RFT → RLVR training pipeline for uncensored, SWE-specialized coding models"
+requires-python = ">=3.11"
+
+# NOTE ON TEST LAYOUT: each stage (stage1..5, frontier, pipeline) is a *self-contained*
+# package deployed independently to a GPU box, and several share module NAMES with
+# different contents (`dataprep`, `enums`, `status_io`). Running one pytest process
+# over the whole tree collides on those names, so tests MUST run per-group in
+# isolated processes — see the Makefile (`make test`) and .github/workflows/ci.yml.
+
+[tool.pytest.ini_options]
+addopts = "-q"
+norecursedirs = ["venv", ".test_venv", ".git", "*.egg-info", "scratchpad"]
+
+[tool.ruff]
+line-length = 100
+extend-exclude = ["venv", ".test_venv", "notebooks", "scratchpad", "model-cards"]
+
+[tool.ruff.lint]
+# Correctness + style (E/F/W) + bugbear (B). NOT isort (I) — this codebase has
+# deliberate side-effect import ordering (e.g. `import unsloth` BEFORE `from trl`
+# so unsloth's patches apply); auto-sorting would silently break it. NOT pyupgrade
+# (UP) — avoids churn on working code.
+select = ["E", "F", "W", "B"]
+# E501: long explanatory comments are deliberate (every non-obvious decision carries
+#   its why). B008: LoraSpec() default is a *frozen* dataclass — immutable, so the
+#   mutable-default concern doesn't apply. B905: the zipped sequences are same-length
+#   by construction; strict= is left off intentionally (behaviour is correct).
+ignore = ["E501", "B008", "B905"]
+
+[tool.ruff.lint.per-file-ignores]
+# Test idioms: `assert False` sentinels (B011) and blind-Exception asserts (B017)
+# are fine in tests.
+"**/tests/**" = ["B011", "B017"]

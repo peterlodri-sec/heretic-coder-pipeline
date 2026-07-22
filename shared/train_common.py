@@ -175,7 +175,7 @@ def _load_plain_peft(model_source: str, *, max_seq_len: int, load_in_4bit: bool,
     if full_finetuning:
         return model, tokenizer
 
-    from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
+    from peft import get_peft_model, prepare_model_for_kbit_training
     if quant is not None:
         model = prepare_model_for_kbit_training(model, use_gradient_checkpointing=True)
     else:

@@ -3,7 +3,7 @@ import dataclasses
 import pytest
 from shared.enums import Verdict
 from shared.verdict import (
-    VerdictResult, compute_verdict, target_gaps, SOTA_TARGETS,
+    compute_verdict, target_gaps, SOTA_TARGETS,
 )
 
 GOOD = {"refusal_rate": 0.05, "bfcl_accuracy": 0.90,

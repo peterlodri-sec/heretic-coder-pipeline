@@ -47,7 +47,11 @@ def test_sft_axolotl_yaml_router_safe_targets():
         assert parsed["fsdp_config"]["fsdp_transformer_layer_cls_to_wrap"] == "Qwen3MoeDecoderLayer"
         assert parsed["base_model"] == "Qwen/Qwen3-Coder-480B-A35B-Instruct"
     else:
-        assert "lora_target_linear" not in text
+        # Comment-safe: strip `#` comments before the substring check so an
+        # explanatory comment ("do NOT use lora_target_linear") can't trip it —
+        # we only forbid it as an ACTIVE setting.
+        active = "\n".join(line.split("#", 1)[0] for line in text.splitlines())
+        assert "lora_target_linear" not in active
         assert "quantize_moe_experts: true" in text
 
 

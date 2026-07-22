@@ -46,7 +46,7 @@ def run_ssh(host: str, port: int, command: str, timeout: int = 30,
             if attempt == retries:
                 raise SSHError(
                     f"ssh to {host}:{port} timed out (attempt {attempt}/{retries}): {last_error}"
-                )
+                ) from None  # deliberate translation of TimeoutExpired -> SSHError
             time.sleep(backoff)
             continue
         if result.returncode == 0:
@@ -94,7 +94,9 @@ def _run_scp(args: list, description: str, timeout: int, retries: int, backoff: 
         except subprocess.TimeoutExpired:
             last_error = f"exceeded {timeout}s wall-clock timeout"
             if attempt == retries:
-                raise SSHError(f"{description} timed out (attempt {attempt}/{retries}): {last_error}")
+                raise SSHError(
+                    f"{description} timed out (attempt {attempt}/{retries}): {last_error}"
+                ) from None  # deliberate translation of TimeoutExpired -> SSHError
             time.sleep(backoff)
             continue
         if result.returncode == 0:

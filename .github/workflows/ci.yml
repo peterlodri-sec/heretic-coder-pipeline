@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Cancel superseded runs on the same ref.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: ruff
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: ruff check
+        run: uv run --with ruff --python 3.11 ruff check .
+
+  test:
+    name: pytest (${{ matrix.group }})
+    runs-on: ubuntu-latest
+    strategy:
+      # Report every group even if one fails.
+      fail-fast: false
+      matrix:
+        # Each stage is a self-contained package and several share module NAMES
+        # (dataprep / enums / status_io) with different contents, so groups MUST
+        # run in isolated processes — one matrix job per group does exactly that.
+        group: [shared, stage1, stage2, stage3, stage4, stage5, frontier, pipeline]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: pytest ${{ matrix.group }}
+        # Deps are only what the modules-under-test import at module load; the
+        # heavy ML stack (torch/transformers/unsloth/trl/datasets/peft) is mocked
+        # in the tests and deliberately NOT installed.
+        run: >-
+          uv run --with pytest --with vastai --with pexpect --with pyyaml
+          --python 3.11 python -m pytest ${{ matrix.group }} -q
