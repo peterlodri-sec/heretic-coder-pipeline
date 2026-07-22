@@ -29,7 +29,9 @@ DATA_PATH = "train.jsonl"
 SFT_OUT = "swe-coder-sft"
 MERGED_OUT = "swe-coder-final"
 GGUF_OUT = "swe-coder-final-gguf"
-HF_REPO_ID = "PeetPedro/gpt-oss-120b-heretic-sft"
+# Publish target — env-configurable so the same harness can train any base (e.g. a
+# dense qwen coder on 1xH200) and publish to its own repo, not the gpt-oss default.
+HF_REPO_ID = os.environ.get("STAGE2_HF_REPO", "PeetPedro/gpt-oss-120b-heretic-sft")
 MAX_STEPS = int(os.environ.get("STAGE2_MAX_STEPS", "-1"))
 CHECK_SWEBENCH = os.environ.get("STAGE2_CHECK_SWEBENCH", "1") == "1"
 # Cost lever (plan Gemini §eval): reduced SWE-bench subset during dev rounds, full

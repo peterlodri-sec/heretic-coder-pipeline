@@ -83,7 +83,7 @@ def deploy_and_launch(instance: dict, model: str, max_steps: int, crabcc_traces:
         # defaults (eager attn, seq 16384, batch 2) apply otherwise.
         + _forward_env("STAGE2_ATTN", "STAGE2_MAX_SEQ_LEN", "STAGE2_BATCH",
                        "STAGE2_GRAD_ACCUM", "STAGE2_INCLUDE_SWEGYM",
-                       "STAGE2_INCLUDE_NEBIUS", "STAGE2_MXFP4", "STAGE2_SHARDED",
+                       "STAGE2_INCLUDE_NEBIUS", "STAGE2_HF_REPO", "STAGE2_MXFP4", "STAGE2_SHARDED",
                        "STAGE2_DEVICE_MAP", "STAGE2_MAX_MEM_GIB",
                        "PYTORCH_CUDA_ALLOC_CONF",
                        # eval knobs (best-of-N headroom + contamination-free dev set)
